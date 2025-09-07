@@ -1,0 +1,12 @@
+# AppArmor profile (placeholder)
+#include <tunables/global>
+
+profile /usr/sbin/guardianusb-daemon {
+  include <abstractions/base>
+
+  /usr/sbin/guardianusb-daemon rmix,
+  /etc/guardianusb/** r,
+  /var/log/guardianusb/** rw,
+  /var/lib/guardianusb/** rw,
+  capability sys_admin,
+}

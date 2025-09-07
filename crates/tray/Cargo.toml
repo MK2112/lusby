@@ -1,0 +1,22 @@
+[package]
+name = "guardianusb-tray"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[features]
+default = []
+tray-ui = ["dep:gtk", "dep:gio", "dep:glib", "dep:libappindicator"]
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+zbus = { version = "4", default-features = false, features = ["tokio"] }
+guardianusb-common = { path = "../common" }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+gtk = { version = "0.15", optional = true }
+glib = { version = "0.15", optional = true }
+gio = { version = "0.15", optional = true }
+libappindicator = { version = "0.7", optional = true }
+libc = "0.2"
+notify-rust = "4"

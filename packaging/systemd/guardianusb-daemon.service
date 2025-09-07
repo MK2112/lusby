@@ -1,0 +1,12 @@
+[Unit]
+Description=GuardianUSB Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/guardianusb-daemon
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

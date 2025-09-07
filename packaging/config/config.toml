@@ -1,0 +1,17 @@
+# guardianusb default configuration
+# This file is installed to /etc/guardianusb/config.toml
+
+[policy]
+# Deny unknown devices by default
+deny_unknown = true
+# Default TTL for ephemeral approvals in seconds (5 minutes)
+default_ttl_secs = 300
+# Revoke ephemeral approvals on lock/suspend
+revoke_on_lock = true
+revoke_on_suspend = true
+
+[paths]
+baselines_system = "/etc/guardianusb/baselines"
+trusted_pubkeys = "/etc/guardianusb/trusted_pubkeys"
+audit_log = "/var/log/guardianusb/audit.log"
+state_dir = "/var/lib/guardianusb"

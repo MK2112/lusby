@@ -1,0 +1,23 @@
+[package]
+name = "guardianusb-common"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+canonical_json = "0.5.0"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = "0.6"
+sha2 = "0.10"
+thiserror = "1"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+base64 = "0.22"
+zvariant = "4"
+zvariant_derive = "4"
+async-trait = "0.1"
+
+[dev-dependencies]
+rand = "0.8"

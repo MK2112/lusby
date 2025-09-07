@@ -1,0 +1,89 @@
+#[cfg(feature = "tray-ui")]
+use gtk::prelude::*;
+#[cfg(feature = "tray-ui")]
+use libappindicator::{AppIndicator, AppIndicatorStatus};
+use std::sync::{Arc, Mutex};
+use guardianusb_common::types::DeviceInfo;
+use anyhow::Result;
+use libc::geteuid;
+
+// Minimal GTK/libappindicator system tray with approval actions.
+// Keeps idle footprint low by avoiding polling; UI updates are user-driven.
+#[cfg(feature = "tray-ui")]
+pub fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>) -> Result<()> {
+    if gtk::is_initialized_main_thread() == false {
+        gtk::init()?;
+    }
+
+    let indicator = AppIndicator::new("guardianusb", "security-high");
+    indicator.set_status(AppIndicatorStatus::Active);
+
+    let menu = gtk::Menu::new();
+
+    // Approve for 5 minutes
+    let approve_item = gtk::MenuItem::with_label("Approve for 5 minutes");
+    {
+        let last_seen = last_seen.clone();
+        approve_item.connect_activate(move |_| {
+            if let Some(dev) = last_seen.lock().unwrap().clone() {
+                // Fire-and-forget D-Bus call
+                let device_id = dev.id.clone();
+                let uid = unsafe { geteuid() } as u32;
+                let ttl: u32 = 300;
+                // Spawn a lightweight thread to avoid blocking UI
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async move {
+                        if let Ok(conn) = zbus::Connection::system().await {
+                            if let Ok(proxy) = zbus::Proxy::new(&conn, "org.guardianusb.Daemon", "/org/guardianusb/Daemon", "org.guardianusb.Daemon").await {
+                                let _ = proxy.call::<bool>("request_ephemeral_allow", &(device_id, ttl, uid)).await;
+                            }
+                        }
+                    });
+                });
+            }
+        });
+    }
+    menu.append(&approve_item);
+
+    // Revoke last device
+    let revoke_item = gtk::MenuItem::with_label("Revoke last device");
+    {
+        let last_seen = last_seen.clone();
+        revoke_item.connect_activate(move |_| {
+            if let Some(dev) = last_seen.lock().unwrap().clone() {
+                let device_id = dev.id.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async move {
+                        if let Ok(conn) = zbus::Connection::system().await {
+                            if let Ok(proxy) = zbus::Proxy::new(&conn, "org.guardianusb.Daemon", "/org/guardianusb/Daemon", "org.guardianusb.Daemon").await {
+                                let _ = proxy.call::<bool>("revoke_device", &(device_id)).await;
+                            }
+                        }
+                    });
+                });
+            }
+        });
+    }
+    menu.append(&revoke_item);
+
+    // Quit
+    let quit_item = gtk::MenuItem::with_label("Quit");
+    quit_item.connect_activate(move |_| {
+        gtk::main_quit();
+    });
+    menu.append(&quit_item);
+
+    menu.show_all();
+    indicator.set_menu(&menu);
+
+    // Run GTK main loop in a background thread to avoid blocking async tasks
+    std::thread::spawn(|| gtk::main());
+
+    Ok(())
+}
+
+// No-op stub if feature is off
+#[cfg(not(feature = "tray-ui"))]
+pub fn start_indicator(_last_seen: Arc<Mutex<Option<DeviceInfo>>>) -> Result<()> { Ok(()) }
