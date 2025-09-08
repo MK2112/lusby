@@ -2,7 +2,7 @@
 
 guardian-usb enforces a deny‑by‑default policy for USB devices by providing a wrapper around [usbguard](https://github.com/USBGuard/usbguard) for Linux Mint/Ubuntu/Debian.
 
-guardian-usb provides:
+**guardian-usb provides:**
 - Privileged daemon `guardianusb-daemon` (root) manages usbguard rules, applies signed baselines, writes tamper‑evident audit logs, and exposes a D‑Bus API
 - Unprivileged tray app `guardianusb-tray` subscribes to daemon signals and shows prompts/notifications (GTK/libappindicator optional; event‑driven, *no* polling)
 - CLI `guardianusbctl`: scripting and configuration helper (e.g., list devices, status, baseline/audit verification)
