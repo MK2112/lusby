@@ -13,3 +13,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 guardianusb-common = { path = "../common" }
 ed25519-dalek = { version = "2" }
+base64 = "0.22"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+whoami = "1"
+libc = "0.2"

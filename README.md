@@ -39,7 +39,11 @@ guardianusbctl list | jq
 
 2) Temporarily allow for 5 minutes
 - Via tray: click "Approve for 5 minutes".
-- Or via D‑Bus (no root required for temporal approval):
+- Or via CLI (no root required for temporal approval):
+```bash
+guardianusbctl allow --device <device-id> --ttl 300
+```
+- Optional (D‑Bus, advanced):
 ```bash
 ID="<device-id>"          # e.g.  "2-1"
 TTL=300                   # seconds
@@ -51,6 +55,10 @@ busctl call org.guardianusb.Daemon \
 Approvals are auto‑revoked on suspend/lock via `systemd‑logind`.
 
 3) Revoke early (optional)
+```bash
+guardianusbctl revoke --device <device-id>
+```
+- Optional (D‑Bus, advanced):
 ```bash
 busctl call org.guardianusb.Daemon \
   /org/guardianusb/Daemon org.guardianusb.Daemon \
@@ -85,39 +93,25 @@ guardianusbctl list | jq
 # Note vendor_id (e.g. 0x0781), product_id (e.g. 0x5581), and serial if present.
 ```
 
-2) Generate an Ed25519 keypair (prints base64 secret and base64 raw public key)
-Use a tiny Rust helper to avoid PEM/SSH encodings. Save the secret securely.
-```rust
-// keygen.rs
-use ed25519_dalek::SigningKey;
-use rand::rngs::OsRng;
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
-fn main() {
-    let sk = SigningKey::generate(&mut OsRng);
-    let pk = sk.verifying_key();
-    println!("SECRET_B64={}", B64.encode(sk.to_bytes())); // 32 bytes
-    println!("PUB_RAW32_B64={}", B64.encode(pk.to_bytes())); // 32 bytes raw
-}
-```
-Build and run:
+2) Generate an Ed25519 keypair (raw 32‑byte public key)
 ```bash
-rustc -C debuginfo=0 -C opt-level=3 keygen.rs -o keygen
-./keygen | tee key.out
-# Extract values
+guardianusbctl baseline keygen | tee key.out
 SECRET_B64=$(grep SECRET_B64 key.out | cut -d= -f2)
 PUB_RAW32_B64=$(grep PUB_RAW32_B64 key.out | cut -d= -f2)
 ```
 
 3) Install the trusted public key (polkit‑gated)
 ```bash
-# This writes a file /etc/guardianusb/trusted_pubkeys/mykey.pub containing raw 32 bytes
-sudo busctl call org.guardianusb.Daemon \
-  /org/guardianusb/Daemon org.guardianusb.Daemon \
-  add_trusted_pubkey ss "mykey" "$PUB_RAW32_B64"
+sudo guardianusbctl keys add mykey --pub-b64 "$PUB_RAW32_B64"
+guardianusbctl keys list
 ```
 
-4) Craft a baseline JSON (unsigned)
-Create `baseline_unsigned.json` with fields matching `crates/common/src/baseline.rs`:
+4) Create a baseline draft (unsigned)
+Use CLI to scaffold from a live device. You may override/add `serial` and `comment`.
+```bash
+guardianusbctl baseline init --device <device-id> --comment "Team USB stick" --out baseline_unsigned.json
+```
+The file follows `crates/common/src/baseline.rs`:
 ```json
 {
   "version": 1,
@@ -139,62 +133,9 @@ Notes:
 - `serial` is optional; include if you want to tie the rule to a specific unit.
 - `descriptors_hash` is currently informational in the daemon; leave empty if unknown.
 
-5) Sign the baseline using canonical JSON (Ed25519) and attach signature
-```rust
-// sign_baseline.rs
-use ed25519_dalek::SigningKey;
-use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use serde::{Deserialize, Serialize};
-use std::fs;
-
-#[derive(Serialize, Deserialize, Clone)]
-struct DeviceEntry {
-    vendor_id: String,
-    product_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")] serial: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")] bus_path: Option<String>,
-    descriptors_hash: String,
-    device_type: String,
-    #[serde(skip_serializing_if = "Option::is_none")] comment: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct Baseline {
-    version: u32,
-    created_by: String,
-    created_at: String,
-    devices: Vec<DeviceEntry>,
-    #[serde(default)] signature: Option<String>,
-}
-
-fn canonical_json_vec<T: serde::Serialize>(v: &T) -> Vec<u8> {
-    let val = serde_json::to_value(v).unwrap();
-    canonical_json::to_string(&val).unwrap().into_bytes()
-}
-
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 4 {
-        eprintln!("usage: sign_baseline <secret_b64> <in.json> <out.json>");
-        std::process::exit(2);
-    }
-    let secret = B64.decode(&args[1]).unwrap();
-    let sk = SigningKey::from_bytes(&secret[..32].try_into().unwrap());
-
-    let mut b: Baseline = serde_json::from_slice(&fs::read(&args[2]).unwrap()).unwrap();
-    b.signature = None; // ensure signature is not part of canonical form
-
-    let msg = canonical_json_vec(&b);
-    let sig = sk.try_sign(&msg).unwrap().to_bytes();
-    b.signature = Some(B64.encode(sig));
-
-    fs::write(&args[3], serde_json::to_string_pretty(&b).unwrap()).unwrap();
-}
-```
-Build and sign:
+5) Sign the baseline using canonical JSON (Ed25519)
 ```bash
-rustc -C debuginfo=0 -C opt-level=3 sign_baseline.rs -o sign_baseline
-./sign_baseline "$SECRET_B64" baseline_unsigned.json baseline.json
+guardianusbctl baseline sign --secret-b64 "$SECRET_B64" --input baseline_unsigned.json --output baseline.json
 ```
 
 6) Verify the signed baseline against the trusted key
@@ -205,10 +146,7 @@ guardianusbctl baseline verify --pubkey /etc/guardianusb/trusted_pubkeys/mykey.p
 
 7) Apply persistently (polkit‑gated). Daemon will atomically apply usbguard rules
 ```bash
-sudo busctl call org.guardianusb.Daemon \
-  /org/guardianusb/Daemon org.guardianusb.Daemon \
-  apply_persistent_allow ss \
-  $(realpath baseline.json) "mykey"
+sudo guardianusbctl baseline apply --file baseline.json --signer mykey
 ```
 
 8) Confirm
@@ -475,3 +413,15 @@ sudo dpkg -r guardianusb-daemon
 # Optional cleanup (destructive)
 sudo rm -rf /etc/guardianusb /var/lib/guardianusb /var/log/guardianusb/audit.log
 ```
+
+## Packaging scripts (manual installs)
+For non-.deb scenarios, the repository includes helper scripts under `packaging/`:
+- `packaging/install.sh`: installs binaries (if present), systemd unit, polkit action, AppArmor profile; creates config and data directories with strict permissions; enables services.
+- `packaging/postinstall_check.sh`: verifies `usbguard`/daemon services, polkit action, AppArmor profile, directory/file permissions, D‑Bus name ownership, and a basic D‑Bus call.
+
+Usage (after building with `cargo build --release --workspace`):
+```bash
+sudo bash packaging/install.sh
+sudo bash packaging/postinstall_check.sh
+```
+These scripts are conservative and aim to keep permissions tight. Review them before use in production environments.

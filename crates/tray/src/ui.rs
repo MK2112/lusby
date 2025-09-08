@@ -10,7 +10,7 @@ use libc::geteuid;
 // Minimal GTK/libappindicator system tray with approval actions.
 // Keeps idle footprint low by avoiding polling; UI updates are user-driven.
 #[cfg(feature = "tray-ui")]
-pub fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>) -> Result<()> {
+pub fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>, default_ttl_secs: u32) -> Result<()> {
     if gtk::is_initialized_main_thread() == false {
         gtk::init()?;
     }
@@ -21,15 +21,16 @@ pub fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>) -> Result<()> 
     let menu = gtk::Menu::new();
 
     // Approve for 5 minutes
-    let approve_item = gtk::MenuItem::with_label("Approve for 5 minutes");
+    let approve_item = gtk::MenuItem::with_label(&format!("Approve for {} minutes", (default_ttl_secs/60).max(1)));
     {
         let last_seen = last_seen.clone();
+        let ttl = default_ttl_secs;
         approve_item.connect_activate(move |_| {
             if let Some(dev) = last_seen.lock().unwrap().clone() {
                 // Fire-and-forget D-Bus call
                 let device_id = dev.id.clone();
                 let uid = unsafe { geteuid() } as u32;
-                let ttl: u32 = 300;
+                let ttl: u32 = ttl;
                 // Spawn a lightweight thread to avoid blocking UI
                 std::thread::spawn(move || {
                     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -68,6 +69,22 @@ pub fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>) -> Result<()> 
     }
     menu.append(&revoke_item);
 
+    // Show last device details
+    let details_item = gtk::MenuItem::with_label("Show last device details");
+    {
+        let last_seen = last_seen.clone();
+        details_item.connect_activate(move |_| {
+            if let Some(dev) = last_seen.lock().unwrap().clone() {
+                let text = format!("Vendor: {}\nProduct: {}\nSerial: {}\nType: {}\nFingerprint: {}",
+                    dev.vendor_id, dev.product_id, dev.serial, dev.device_type, dev.fingerprint);
+                let dialog = gtk::MessageDialog::new(None::<&gtk::Window>, gtk::DialogFlags::MODAL, gtk::MessageType::Info, gtk::ButtonsType::Ok, &text);
+                dialog.run();
+                dialog.destroy();
+            }
+        });
+    }
+    menu.append(&details_item);
+
     // Quit
     let quit_item = gtk::MenuItem::with_label("Quit");
     quit_item.connect_activate(move |_| {
@@ -86,4 +103,4 @@ pub fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>) -> Result<()> 
 
 // No-op stub if feature is off
 #[cfg(not(feature = "tray-ui"))]
-pub fn start_indicator(_last_seen: Arc<Mutex<Option<DeviceInfo>>>) -> Result<()> { Ok(()) }
+pub fn start_indicator(_last_seen: Arc<Mutex<Option<DeviceInfo>>>, _default_ttl_secs: u32) -> Result<()> { Ok(()) }
