@@ -208,6 +208,6 @@ jobs:
           cd crates/daemon
           echo "Current directory: $(pwd)"
           echo "Building Debian package..."
-          cargo deb --no-build --no-strip --target-dir ../../target
+          CARGO_TARGET_DIR=../../target cargo deb --no-build --no-strip
           echo "Listing target directory: $(pwd)/../../target/debian/"
           ls -la ../../target/debian/
