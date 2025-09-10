@@ -206,5 +206,8 @@ jobs:
         run: |
           cargo install cargo-deb
           cd crates/daemon
-          cargo deb --no-build --no-strip
-          ls -la target/debian/
+          echo "Current directory: $(pwd)"
+          echo "Building Debian package..."
+          cargo deb --no-build --no-strip --target-dir ../../target
+          echo "Listing target directory: $(pwd)/../../target/debian/"
+          ls -la ../../target/debian/
