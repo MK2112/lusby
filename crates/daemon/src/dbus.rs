@@ -1,19 +1,22 @@
-use crate::audit::AuditLogger;
-use crate::polkit::check_manage_authorization;
-use ed25519_dalek::VerifyingKey;
-use guardianusb_backend_usbguard::UsbguardBackend;
-use guardianusb_common::backend::UsbBackend;
-use guardianusb_common::baseline::Baseline;
-use guardianusb_common::types::{DeviceInfo, PolicyStatus};
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+use base64::Engine as _;
+use ed25519_dalek::VerifyingKey;
 use zbus::message::Header;
-use zbus::Connection;
-use zbus::{interface, SignalContext};
+use zbus::{interface, Connection, SignalContext};
+
+use guardianusb_backend_usbguard::UsbguardBackend;
+use guardianusb_common::backend::UsbBackend;
+use guardianusb_common::baseline::Baseline;
+use guardianusb_common::types::{DeviceInfo, PolicyStatus};
+
+use crate::audit::AuditLogger;
+use crate::polkit::check_manage_authorization;
 
 #[derive(Clone)]
 pub struct DaemonState {
