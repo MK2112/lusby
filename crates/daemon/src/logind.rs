@@ -20,17 +20,13 @@ pub async fn run_logind_listener(
             continue;
         }
         if let Some(member) = header.member().map(|m| m.as_str().to_string()) {
-            match member.as_str() {
-                // boolean: true when about to sleep, false when resumed
-                "PrepareForSleep" => {
-                    if let Ok((going_to_sleep,)) = msg.body().deserialize::<(bool,)>() {
-                        if going_to_sleep {
-                            // Revoke all ephemeral approvals immediately
-                            state.revoke_all_ephemeral().await;
-                        }
+            if member.as_str() == "PrepareForSleep" {
+                if let Ok((going_to_sleep,)) = msg.body().deserialize::<(bool,)>() {
+                    if going_to_sleep {
+                        // Revoke all ephemeral approvals immediately
+                        state.revoke_all_ephemeral().await;
                     }
                 }
-                _ => {}
             }
         }
     }

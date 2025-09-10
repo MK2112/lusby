@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
     info!(target: "guardianusb", event = "daemon_start", "guardianusb-daemon starting");
 
     // Register D-Bus service on system bus org.guardianusb.Daemon
-    let backend = UsbguardBackend::default();
+    let backend = UsbguardBackend;
     let state = DaemonState::new(backend);
     // Keep a clone to use in background listeners
     let state_clone = state.clone();

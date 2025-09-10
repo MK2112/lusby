@@ -1,129 +1,223 @@
-use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixDatagram;
 use std::thread;
+use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use tokio::io::unix::AsyncFd;
-use zbus::Connection;
+use zbus::{names::BusName, Connection};
 
 use guardianusb_common::fingerprint::{compute_fingerprint, FingerprintInput};
 use guardianusb_common::types::DeviceInfo;
 
-use crate::dbus::DaemonState;
-
 const DBUS_PATH: &str = "/org/guardianusb/Daemon";
 
+/// Minimal serialisable struct sent from the blocking thread to the async task.
+#[derive(Serialize, Deserialize, Debug)]
+struct RawUdevEvent {
+    action: String,
+    devnode: String,
+    vendor_id: String,
+    product_id: String,
+    serial: String,
+    device_type: String,
+    vendor: Option<String>,
+    product: Option<String>,
+}
+
 pub async fn run_udev_listener(connection: Connection) -> Result<()> {
-    // Build a udev monitor for USB subsystem
-    let mut monitor = udev::MonitorBuilder::new()?;
-    monitor.match_subsystem("usb")?;
-    let socket = monitor.listen()?;
+    // Create a Unix datagram pair for thread -> async notifications
+    let (sock1, sock2) = UnixDatagram::pair().context("creating unix datagram pair")?;
+    // Make the tokio async fd from one end (sock1)
+    let mut async_fd = AsyncFd::new(sock1).context("creating AsyncFd")?;
 
-    // Create a Unix datagram socket for async I/O
-    let (sock1, sock2) = UnixDatagram::pair()?;
-    let async_fd = AsyncFd::new(sock1)?;
-
-    // Spawn a thread to forward udev events to our socket
+    // Spawn an OS thread that creates the udev monitor (so udev's non-Send types never cross thread boundary).
     thread::spawn(move || {
-        let mut buffer = [0; 1];
-        loop {
-            if socket.receive_event().is_ok() {
-                // Just notify that we got an event
-                let _ = sock2.send(&[1]);
+        // Create monitor inside this thread. This keeps the non-Send udev types on this thread only.
+        let socket = match udev::MonitorBuilder::new()
+            .and_then(|b| b.match_subsystem("usb"))
+            .and_then(|b| b.listen())
+        {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Failed to set up udev monitor: {}", e);
+                return;
             }
+        };
+
+        // Iterate blocking for udev events, serialise some fields and send to the async side.
+        for event in socket.iter() {
+            // Build a RawUdevEvent with the fields we care about
+            let action = event
+                .action()
+                .and_then(|a| a.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let devnode = event
+                .devnode()
+                .and_then(|p| p.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let vendor_id = event
+                .property_value("ID_VENDOR_ID")
+                .and_then(|s| s.to_str())
+                .map(|s| format!("0x{}", s))
+                .unwrap_or_default();
+            let product_id = event
+                .property_value("ID_MODEL_ID")
+                .and_then(|s| s.to_str())
+                .map(|s| format!("0x{}", s))
+                .unwrap_or_default();
+            let serial = event
+                .property_value("ID_SERIAL_SHORT")
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let device_type = event
+                .property_value("ID_USB_DRIVER")
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let vendor = event
+                .property_value("ID_VENDOR")
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string());
+            let product = event
+                .property_value("ID_MODEL")
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string());
+
+            let raw = RawUdevEvent {
+                action,
+                devnode,
+                vendor_id,
+                product_id,
+                serial,
+                device_type,
+                vendor,
+                product,
+            };
+
+            match serde_json::to_vec(&raw) {
+                Ok(j) => {
+                    // If send fails, print error and continue (peer may be closed on shutdown)
+                    if let Err(e) = sock2.send(&j) {
+                        eprintln!("Failed to send udev event to main thread: {}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to serialise udev event: {}", e);
+                }
+            }
+
+            // Tiny sleep to avoid tight loop storms
+            thread::sleep(Duration::from_millis(10));
         }
     });
 
+    // Async loop: wait for datagrams, parse them and process the event.
+    let mut buf = vec![0u8; 16 * 1024]; // large enough buffer for the JSON payload
     loop {
+        // Clone the underlying UnixDatagram (duplicates the fd) BEFORE taking the mutable read guard.
+        // The temporary immutable borrow taken by `get_ref()` ends immediately after try_clone() returns,
+        // so there is no overlap with the later mutable borrow `readable_mut()`.
+        let recv_sock = async_fd
+            .get_ref()
+            .try_clone()
+            .context("cloning unix datagram for recv")?;
+
+        // Now wait until the datagram socket is readable
         let mut guard = async_fd.readable_mut().await?;
-        let _ = guard.try_io(|_| {
-            // Clear the notification
-            let mut buf = [0; 1];
-            let _ = async_fd.get_ref().recv(&mut buf);
 
-            // Process all pending udev events
-            match socket.receive_event() {
-                Ok(event) => {
-                    let action = event.action().unwrap_or("unknown").to_string();
-                    let devnode = event
-                        .devnode()
-                        .and_then(|p| p.to_str())
-                        .unwrap_or("")
-                        .to_string();
+        let result = guard.try_io(|_| {
+            match recv_sock.recv(&mut buf) {
+                Ok(len) => {
+                    if len == 0 {
+                        // peer closed
+                        return Ok(());
+                    }
 
-                    let vendor = event
-                        .property_value("ID_VENDOR_ID")
-                        .and_then(|s| s.to_str())
-                        .map(|s| format!("0x{}", s))
-                        .unwrap_or_default();
+                    let slice = &buf[..len];
+                    match serde_json::from_slice::<RawUdevEvent>(slice) {
+                        Ok(raw) => {
+                            let fp = compute_fingerprint(&FingerprintInput {
+                                vendor_id: &raw.vendor_id,
+                                product_id: &raw.product_id,
+                                serial: if raw.serial.is_empty() { None } else { Some(&raw.serial) },
+                                manufacturer: raw.vendor.as_deref(),
+                                product: raw.product.as_deref(),
+                                raw_descriptors: None,
+                            });
 
-                    let product = event
-                        .property_value("ID_MODEL_ID")
-                        .and_then(|s| s.to_str())
-                        .map(|s| format!("0x{}", s))
-                        .unwrap_or_default();
+                            let info = DeviceInfo {
+                                id: raw.devnode.clone(),
+                                vendor_id: raw.vendor_id.clone(),
+                                product_id: raw.product_id.clone(),
+                                serial: raw.serial.clone(),
+                                fingerprint: fp,
+                                device_type: raw.device_type.clone(),
+                                allowed: false,
+                                persistent: false,
+                            };
 
-                    let serial = event
-                        .property_value("ID_SERIAL_SHORT")
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    let dtype = event
-                        .property_value("ID_USB_DRIVER")
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    let fp = compute_fingerprint(&FingerprintInput {
-                        vendor_id: &vendor,
-                        product_id: &product,
-                        serial: if serial.is_empty() {
-                            None
-                        } else {
-                            Some(&serial)
-                        },
-                        manufacturer: event.property_value("ID_VENDOR").and_then(|s| s.to_str()),
-                        product: event.property_value("ID_MODEL").and_then(|s| s.to_str()),
-                        raw_descriptors: None,
-                    });
-
-                    let info = DeviceInfo {
-                        id: devnode.clone(),
-                        vendor_id: vendor,
-                        product_id: product,
-                        serial,
-                        fingerprint: fp,
-                        device_type: dtype,
-                        allowed: false,
-                        persistent: false,
-                    };
-
-                    // Emit D-Bus signal based on action
-                    let conn = connection.clone();
-                    let info_clone = info.clone();
-                    tokio::spawn(async move {
-                        match DaemonState::new_daemon(&conn).await {
-                            Ok(proxy) => {
-                                if action == "add" || action == "bind" {
-                                    if let Err(e) = proxy.unknown_device_inserted(&info_clone).await
-                                    {
-                                        eprintln!("Failed to emit device inserted signal: {}", e);
+                            let conn = connection.clone();
+                            let info_clone = info.clone();
+                            let action = raw.action.clone();
+                            tokio::spawn(async move {
+                                match zbus::fdo::DBusProxy::new(&conn).await {
+                                    Ok(dbus_proxy) => {
+                                        let bus_name = match BusName::try_from("org.guardianusb") {
+                                            Ok(b) => b,
+                                            Err(e) => {
+                                                eprintln!("Invalid bus name: {}", e);
+                                                return;
+                                            }
+                                        };
+                                        if let Ok(true) = dbus_proxy.name_has_owner(bus_name).await {
+                                            match zbus::Proxy::new(
+                                                &conn,
+                                                "org.guardianusb",
+                                                DBUS_PATH,
+                                                "org.guardianusb.Daemon",
+                                            ).await {
+                                                Ok(proxy) => {
+                                                    if action == "add" || action == "bind" {
+                                                        if let Err(e) =
+                                                            proxy.call_method("UnknownDeviceInserted", &(&info_clone,))
+                                                                .await
+                                                        {
+                                                            eprintln!("Failed to emit device inserted signal: {}", e);
+                                                        }
+                                                    } else if action == "remove" || action == "unbind" {
+                                                        if let Err(e) =
+                                                            proxy.call_method("DeviceRemoved", &(&info_clone.id,))
+                                                                .await
+                                                        {
+                                                            eprintln!("Failed to emit device removed signal: {}", e);
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => eprintln!("Failed to build proxy to org.guardianusb: {}", e),
+                                            }
+                                        }
                                     }
-                                } else if action == "remove" || action == "unbind" {
-                                    if let Err(e) = proxy.device_removed(&info_clone.id).await {
-                                        eprintln!("Failed to emit device removed signal: {}", e);
-                                    }
+                                    Err(e) => eprintln!("Failed to create D-Bus proxy: {}", e),
                                 }
-                            }
-                            Err(e) => eprintln!("Failed to create D-Bus proxy: {}", e),
+                            });
                         }
-                    });
+                        Err(e) => eprintln!("Failed to parse raw udev event JSON: {}", e),
+                    }
                 }
-                Err(e) => eprintln!("Error receiving udev event: {}", e),
+                Err(e) => eprintln!("Error receiving on unix datagram: {}", e),
             }
             Ok(())
-        })?;
+        });
+
+        if let Err(e) = result {
+            eprintln!("Error processing udev notification: {:?}", e);
+        }
         guard.clear_ready();
     }
 }

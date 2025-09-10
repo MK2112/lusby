@@ -64,7 +64,7 @@ fn generate_rules_from_baseline(b: &Baseline) -> String {
             out.push_str(&format!(
                 "allow id {} serial \"{}\"\n",
                 id,
-                serial.replace('"', "\"")
+                serial.replace('"', "\\\"")
             ));
         } else {
             out.push_str(&format!("allow id {}\n", id));
@@ -307,7 +307,7 @@ impl DaemonState {
             .open(&path)
         {
             Ok(mut f) => {
-                if let Err(_) = f.write_all(&bytes) {
+                if f.write_all(&bytes).is_err() {
                     return false;
                 }
                 true
