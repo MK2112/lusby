@@ -58,6 +58,26 @@ jobs:
 
       - name: Setup D-Bus for integration tests
         run: |
+          # Create D-Bus system configuration directory
+          sudo mkdir -p /etc/dbus-1/system.d/
+          
+          # Create a policy file to allow our daemon to own its service
+          cat << 'EOF' | sudo tee /etc/dbus-1/system.d/guardianusb.conf > /dev/null
+          <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+           "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+          <busconfig>
+            <policy user="root">
+              <allow own="org.guardianusb.Daemon"/>
+              <allow send_destination="org.guardianusb.Daemon"/>
+              <allow receive_sender="org.guardianusb.Daemon"/>
+            </policy>
+            <policy context="default">
+              <allow send_destination="org.guardianusb.Daemon"/>
+              <allow receive_sender="org.guardianusb.Daemon"/>
+            </policy>
+          </busconfig>
+          EOF
+          
           # Start system D-Bus daemon for tests
           sudo mkdir -p /run/dbus
           sudo dbus-daemon --system --fork
@@ -79,33 +99,64 @@ jobs:
       - name: Run integration tests
         env:
           GU_TEST_SYSTEM: 1
+          RUST_LOG: debug
+          DBUS_VERBOSE: 1
         run: |
-          set -e
-          # Start the daemon in the background
+          set -ex
+          
+          # Verify D-Bus is running
+          if ! pgrep dbus-daemon > /dev/null; then
+            echo "Error: D-Bus daemon is not running"
+            exit 1
+          fi
+          
+          # Verify D-Bus configuration
+          echo "D-Bus configuration:"
+          ls -la /etc/dbus-1/system.d/
+          
+          # Build the daemon
           cargo build -p guardianusb-daemon
-          sudo target/debug/guardianusb-daemon &
+          
+          # Start the daemon with verbose output
+          echo "Starting daemon..."
+          sudo RUST_LOG=debug target/debug/guardianusb-daemon &
           DAEMON_PID=$!
           
           # Give the daemon a moment to start
-          sleep 2
+          sleep 5
           
           # Check if daemon is running
           if ! ps -p $DAEMON_PID > /dev/null; then
-            echo "Error: Daemon failed to start"
+            echo "Error: Daemon process failed to start"
             exit 1
           fi
+          
+          # Check if daemon registered with D-Bus
+          if ! dbus-send --system --dest=org.freedesktop.DBus \
+               --type=method_call --print-reply /org/freedesktop/DBus \
+               org.freedesktop.DBus.ListNames 2>/dev/null | grep -q org.guardianusb.Daemon; then
+            echo "Error: Daemon failed to register with D-Bus"
+            echo "D-Bus services:"
+            dbus-send --system --dest=org.freedesktop.DBus \
+              --type=method_call --print-reply /org/freedesktop/DBus \
+              org.freedesktop.DBus.ListNames || true
+            exit 1
+          fi
+          
+          echo "Daemon started successfully with PID $DAEMON_PID"
           
           # Run tests
           cargo test --no-fail-fast --workspace --exclude guardianusb-tray
           
           # Cleanup
+          echo "Stopping daemon..."
           if ps -p $DAEMON_PID > /dev/null; then
-            echo "Stopping daemon..."
             sudo kill $DAEMON_PID || true
             # Give it a moment to shut down
-            sleep 1
+            sleep 2
             # Force kill if still running
             if ps -p $DAEMON_PID > /dev/null; then
+              echo "Force killing daemon..."
               sudo kill -9 $DAEMON_PID || true
             fi
           fi
