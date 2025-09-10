@@ -1,15 +1,15 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use tracing::{info};
+use tracing::info;
 
 mod dbus;
 use dbus::DaemonState;
 use guardianusb_backend_usbguard::UsbguardBackend;
-#[cfg(feature = "udev-monitor")]
-mod udev_monitor;
 mod audit;
 mod logind;
 mod polkit;
+#[cfg(feature = "udev-monitor")]
+mod udev_monitor;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,9 +56,17 @@ async fn main() -> Result<()> {
 fn setup_logging() {
     use tracing_subscriber::{fmt, prelude::*, EnvFilter};
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let fmt_layer = fmt::layer().json().with_target(true).with_timer(fmt::time::UtcTime::rfc_3339());
-    tracing_subscriber::registry().with(filter).with(fmt_layer).init();
+    let fmt_layer = fmt::layer()
+        .json()
+        .with_target(true)
+        .with_timer(fmt::time::UtcTime::rfc_3339());
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt_layer)
+        .init();
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct PolicyStatus { deny_unknown: bool }
+struct PolicyStatus {
+    deny_unknown: bool,
+}

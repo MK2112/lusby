@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::audit::{verify_chain, AuditEntry, AuditEntryPayload};
     use crate::baseline::{Baseline, DeviceEntry};
     use crate::crypto::{sign_canonical, verify_canonical};
     use crate::fingerprint::{compute_fingerprint, short_fingerprint, FingerprintInput};
-    use crate::audit::{AuditEntry, AuditEntryPayload, verify_chain};
+    use chrono::Utc;
     use ed25519_dalek::{SigningKey, VerifyingKey};
     use rand::rngs::OsRng;
-    use chrono::Utc;
 
     #[test]
     fn fingerprint_deterministic() {
@@ -60,9 +60,21 @@ mod tests {
 
     #[test]
     fn audit_chain_integrity() {
-        let p1 = AuditEntryPayload { timestamp: Utc::now(), event_type: "start".into(), device_fingerprint: None, action: "daemon_start".into(), requester_uid: None };
+        let p1 = AuditEntryPayload {
+            timestamp: Utc::now(),
+            event_type: "start".into(),
+            device_fingerprint: None,
+            action: "daemon_start".into(),
+            requester_uid: None,
+        };
         let e1 = AuditEntry::new(None, p1);
-        let p2 = AuditEntryPayload { timestamp: Utc::now(), event_type: "approve".into(), device_fingerprint: Some("sha256:abc".into()), action: "allow_ephemeral".into(), requester_uid: Some(1000) };
+        let p2 = AuditEntryPayload {
+            timestamp: Utc::now(),
+            event_type: "approve".into(),
+            device_fingerprint: Some("sha256:abc".into()),
+            action: "allow_ephemeral".into(),
+            requester_uid: Some(1000),
+        };
         let e2 = AuditEntry::new(Some(e1.entry_hash.clone()), p2);
         let chain = vec![e1.clone(), e2.clone()];
         assert!(verify_chain(&chain));

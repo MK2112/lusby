@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use ed25519_dalek::{SigningKey, VerifyingKey};
+use serde::{Deserialize, Serialize};
 
 use crate::crypto::{sign_canonical, verify_canonical};
 
@@ -8,13 +8,13 @@ use crate::crypto::{sign_canonical, verify_canonical};
 pub struct DeviceEntry {
     pub vendor_id: String,
     pub product_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub serial: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bus_path: Option<String>,
     pub descriptors_hash: String,
     pub device_type: String, // "hid" | "storage" | "net" | etc.
-    #[serde(skip_serializing_if = "Option::is_none")] 
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 }
 

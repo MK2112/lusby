@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::types::DeviceInfo;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait UsbBackend: Send + Sync {

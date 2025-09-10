@@ -15,18 +15,30 @@ pub fn compute_fingerprint(input: &FingerprintInput) -> String {
     hasher.update(b"|");
     hasher.update(input.product_id.as_bytes());
     hasher.update(b"|");
-    if let Some(s) = input.serial { hasher.update(s.as_bytes()); }
+    if let Some(s) = input.serial {
+        hasher.update(s.as_bytes());
+    }
     hasher.update(b"|");
-    if let Some(m) = input.manufacturer { hasher.update(m.as_bytes()); }
+    if let Some(m) = input.manufacturer {
+        hasher.update(m.as_bytes());
+    }
     hasher.update(b"|");
-    if let Some(p) = input.product { hasher.update(p.as_bytes()); }
+    if let Some(p) = input.product {
+        hasher.update(p.as_bytes());
+    }
     hasher.update(b"|");
-    if let Some(desc) = input.raw_descriptors { hasher.update(desc); }
+    if let Some(desc) = input.raw_descriptors {
+        hasher.update(desc);
+    }
     let digest = hasher.finalize();
     format!("sha256:{}", hex::encode(digest))
 }
 
 pub fn short_fingerprint(full: &str) -> String {
     // Expect format sha256:<hex>
-    if let Some(hexpart) = full.split(':').nth(1) { hexpart[0..8.min(hexpart.len())].to_string() } else { full.chars().take(8).collect() }
+    if let Some(hexpart) = full.split(':').nth(1) {
+        hexpart[0..8.min(hexpart.len())].to_string()
+    } else {
+        full.chars().take(8).collect()
+    }
 }

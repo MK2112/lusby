@@ -1,12 +1,12 @@
 use async_trait::async_trait;
 use guardianusb_common::backend::UsbBackend;
 use guardianusb_common::types::DeviceInfo;
-use std::process::Command;
-use std::str;
-use thiserror::Error;
 use std::fs::{self, File};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
+use std::process::Command;
+use std::str;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum BackendError {
@@ -26,8 +26,12 @@ mod tests {
                                     2: allow id 0781:5581 serial "1234567890ABCDEF" name "SanDisk Ultra" hash "ijkl" parent-hash "..." via-port "2-2" with-interface +mass-storage
                                     "#;
         let devices = UsbguardBackend::parse_list_devices(sample);
-        assert!(devices.iter().any(|d| d.vendor_id == "0x1d6b" && d.product_id == "0x0002"));
-        let logi = devices.iter().find(|d| d.vendor_id == "0x046d" && d.product_id == "0xC534".to_lowercase());
+        assert!(devices
+            .iter()
+            .any(|d| d.vendor_id == "0x1d6b" && d.product_id == "0x0002"));
+        let logi = devices
+            .iter()
+            .find(|d| d.vendor_id == "0x046d" && d.product_id == "0xC534".to_lowercase());
         assert!(logi.is_some());
         let storage = devices.iter().find(|d| d.vendor_id == "0x0781");
         assert!(storage.is_some());
@@ -42,21 +46,25 @@ mod tests {
 
         // Write tmp file with restrictive perms
         {
-            let mut f = File::create(tmp_path).map_err(|e| BackendError::Cmd(format!("create tmp: {e}")))?;
+            let mut f = File::create(tmp_path)
+                .map_err(|e| BackendError::Cmd(format!("create tmp: {e}")))?;
             f.set_permissions(fs::Permissions::from_mode(0o600))
                 .map_err(|e| BackendError::Cmd(format!("chmod tmp: {e}")))?;
             f.write_all(rules_content.as_bytes())
                 .map_err(|e| BackendError::Cmd(format!("write tmp: {e}")))?;
-            f.sync_all().map_err(|e| BackendError::Cmd(format!("fsync tmp: {e}")))?;
+            f.sync_all()
+                .map_err(|e| BackendError::Cmd(format!("fsync tmp: {e}")))?;
         }
 
         // Backup existing rules if present
         if fs::metadata(rules_path).is_ok() {
-            fs::copy(rules_path, bak_path).map_err(|e| BackendError::Cmd(format!("backup rules: {e}")))?;
+            fs::copy(rules_path, bak_path)
+                .map_err(|e| BackendError::Cmd(format!("backup rules: {e}")))?;
         }
 
         // Move tmp into place
-        fs::rename(tmp_path, rules_path).map_err(|e| BackendError::Cmd(format!("rename rules: {e}")))?;
+        fs::rename(tmp_path, rules_path)
+            .map_err(|e| BackendError::Cmd(format!("rename rules: {e}")))?;
 
         // Reload usbguard
         match UsbguardBackend::run_usbguard(&["reload"]) {
@@ -77,11 +85,16 @@ pub struct UsbguardBackend;
 
 impl UsbguardBackend {
     fn run_usbguard(args: &[&str]) -> Result<String, BackendError> {
-        let out = Command::new("usbguard").args(args).output().map_err(|e| BackendError::Cmd(e.to_string()))?;
+        let out = Command::new("usbguard")
+            .args(args)
+            .output()
+            .map_err(|e| BackendError::Cmd(e.to_string()))?;
         if out.status.success() {
             Ok(String::from_utf8_lossy(&out.stdout).to_string())
         } else {
-            Err(BackendError::Cmd(String::from_utf8_lossy(&out.stderr).to_string()))
+            Err(BackendError::Cmd(
+                String::from_utf8_lossy(&out.stderr).to_string(),
+            ))
         }
     }
 
@@ -92,7 +105,9 @@ impl UsbguardBackend {
         let mut devices = Vec::new();
         for line in output.lines() {
             let line = line.trim();
-            if line.is_empty() { continue; }
+            if line.is_empty() {
+                continue;
+            }
             let mut id = String::new();
             let mut vendor = String::new();
             let mut product = String::new();
@@ -105,7 +120,7 @@ impl UsbguardBackend {
                     let pair = &rest[..space];
                     if let Some(colon) = pair.find(':') {
                         vendor = format!("0x{}", &pair[..colon]);
-                        product = format!("0x{}", &pair[colon+1..]);
+                        product = format!("0x{}", &pair[colon + 1..]);
                         id = pair.to_string();
                     }
                 }
@@ -118,13 +133,26 @@ impl UsbguardBackend {
                 }
             }
             // Guess type by presence of with-interface strings
-            if line.contains("with-interface +hid") { dtype = "hid".into(); }
-            else if line.contains("with-interface +mass-storage") { dtype = "storage".into(); }
-            else { dtype = String::from(""); }
+            if line.contains("with-interface +hid") {
+                dtype = "hid".into();
+            } else if line.contains("with-interface +mass-storage") {
+                dtype = "storage".into();
+            } else {
+                dtype = String::from("");
+            }
 
             if !vendor.is_empty() && !product.is_empty() {
                 // fingerprint unknown here; leave empty; daemon can compute if needed
-                devices.push(DeviceInfo { id, vendor_id: vendor, product_id: product, serial, fingerprint: String::new(), device_type: dtype, allowed: line.starts_with("allow"), persistent: line.contains("allow ") });
+                devices.push(DeviceInfo {
+                    id,
+                    vendor_id: vendor,
+                    product_id: product,
+                    serial,
+                    fingerprint: String::new(),
+                    device_type: dtype,
+                    allowed: line.starts_with("allow"),
+                    persistent: line.contains("allow "),
+                });
             }
         }
         devices
@@ -139,21 +167,25 @@ impl UsbguardBackend {
 
         // Write tmp file with restrictive perms
         {
-            let mut f = File::create(tmp_path).map_err(|e| BackendError::Cmd(format!("create tmp: {e}")))?;
+            let mut f = File::create(tmp_path)
+                .map_err(|e| BackendError::Cmd(format!("create tmp: {e}")))?;
             f.set_permissions(fs::Permissions::from_mode(0o600))
                 .map_err(|e| BackendError::Cmd(format!("chmod tmp: {e}")))?;
             f.write_all(rules_content.as_bytes())
                 .map_err(|e| BackendError::Cmd(format!("write tmp: {e}")))?;
-            f.sync_all().map_err(|e| BackendError::Cmd(format!("fsync tmp: {e}")))?;
+            f.sync_all()
+                .map_err(|e| BackendError::Cmd(format!("fsync tmp: {e}")))?;
         }
 
         // Backup existing rules if present
         if fs::metadata(rules_path).is_ok() {
-            fs::copy(rules_path, bak_path).map_err(|e| BackendError::Cmd(format!("backup rules: {e}")))?;
+            fs::copy(rules_path, bak_path)
+                .map_err(|e| BackendError::Cmd(format!("backup rules: {e}")))?;
         }
 
         // Move tmp into place
-        fs::rename(tmp_path, rules_path).map_err(|e| BackendError::Cmd(format!("rename rules: {e}")))?;
+        fs::rename(tmp_path, rules_path)
+            .map_err(|e| BackendError::Cmd(format!("rename rules: {e}")))?;
 
         // Reload usbguard
         match Self::run_usbguard(&["reload"]) {

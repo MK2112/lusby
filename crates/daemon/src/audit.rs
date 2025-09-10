@@ -1,8 +1,8 @@
+use chrono::Utc;
+use guardianusb_common::audit::{AuditEntry, AuditEntryPayload};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
-use chrono::Utc;
-use guardianusb_common::audit::{AuditEntry, AuditEntryPayload};
 
 #[derive(Clone)]
 pub struct AuditLogger {
@@ -12,11 +12,22 @@ pub struct AuditLogger {
 
 impl AuditLogger {
     pub fn new(path: PathBuf) -> std::io::Result<Self> {
-        if let Some(dir) = path.parent() { fs::create_dir_all(dir)?; }
-        Ok(Self { path, last_hash: None })
+        if let Some(dir) = path.parent() {
+            fs::create_dir_all(dir)?;
+        }
+        Ok(Self {
+            path,
+            last_hash: None,
+        })
     }
 
-    pub fn log(&mut self, event_type: &str, device_fingerprint: Option<String>, action: &str, requester_uid: Option<u32>) {
+    pub fn log(
+        &mut self,
+        event_type: &str,
+        device_fingerprint: Option<String>,
+        action: &str,
+        requester_uid: Option<u32>,
+    ) {
         let payload = AuditEntryPayload {
             timestamp: Utc::now(),
             event_type: event_type.into(),
@@ -28,7 +39,11 @@ impl AuditLogger {
         let entry = AuditEntry::new(prev, payload);
         self.last_hash = Some(entry.entry_hash.clone());
         // Best-effort write
-        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&self.path) {
+        if let Ok(mut f) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+        {
             if let Ok(line) = serde_json::to_string(&entry) {
                 let _ = writeln!(f, "{}", line);
             }

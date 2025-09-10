@@ -1,38 +1,42 @@
 use anyhow::Result;
-use zbus::Connection;
 use futures_util::StreamExt;
 use guardianusb_common::types::DeviceInfo;
 use std::sync::{Arc, Mutex};
+use zbus::Connection;
 #[cfg(feature = "tray-ui")]
 mod ui;
-use notify_rust::Notification;
-use libc::geteuid;
 use guardianusb_common::fingerprint::short_fingerprint;
+use libc::geteuid;
+use notify_rust::Notification;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
-struct ConfigPolicy { 
-    #[serde(default = "default_ttl")] 
-    default_ttl_secs: u32 
+struct ConfigPolicy {
+    #[serde(default = "default_ttl")]
+    default_ttl_secs: u32,
 }
-impl Default for ConfigPolicy { 
-    fn default() -> Self { 
-        Self { 
-            default_ttl_secs: default_ttl() 
-        } 
-    } 
+impl Default for ConfigPolicy {
+    fn default() -> Self {
+        Self {
+            default_ttl_secs: default_ttl(),
+        }
+    }
 }
 #[derive(Debug, Deserialize)]
-struct Config { 
-    #[serde(default)] 
-    policy: ConfigPolicy 
+struct Config {
+    #[serde(default)]
+    policy: ConfigPolicy,
 }
-fn default_ttl() -> u32 { 300 }
+fn default_ttl() -> u32 {
+    300
+}
 
 fn load_config_ttl() -> u32 {
     let path = "/etc/guardianusb/config.toml";
     if let Ok(text) = std::fs::read_to_string(path) {
-        if let Ok(cfg) = toml::from_str::<Config>(&text) { return cfg.policy.default_ttl_secs; }
+        if let Ok(cfg) = toml::from_str::<Config>(&text) {
+            return cfg.policy.default_ttl_secs;
+        }
     }
     default_ttl()
 }
@@ -55,26 +59,43 @@ async fn main() -> Result<()> {
     while let Some(Ok(msg)) = stream.next().await {
         let header = msg.header();
         let path_ok = header.path().map(|p| p.as_str().to_string()) == Some(path_str.to_string());
-        let iface_ok = header.interface().map(|i| i.as_str().to_string()) == Some(iface.to_string());
-        if msg.message_type() == zbus::MessageType::Signal && path_ok && iface_ok
-        {
+        let iface_ok =
+            header.interface().map(|i| i.as_str().to_string()) == Some(iface.to_string());
+        if msg.message_type() == zbus::MessageType::Signal && path_ok && iface_ok {
             if let Some(member) = header.member().map(|m| m.as_str().to_string()) {
                 match member.as_str() {
                     "unknown_device_inserted" => {
                         if let Ok((d,)) = msg.body().deserialize::<(DeviceInfo,)>() {
-                            println!("Unknown USB device: {} {} serial={} type={}", d.vendor_id, d.product_id, d.serial, d.device_type);
+                            println!(
+                                "Unknown USB device: {} {} serial={} type={}",
+                                d.vendor_id, d.product_id, d.serial, d.device_type
+                            );
                             *last_seen.lock().unwrap() = Some(d);
                             if let Some(dev) = last_seen.lock().unwrap().as_ref() {
                                 let mut notif = Notification::new();
-                                let fp_short = if dev.fingerprint.is_empty() { String::from("") } else { short_fingerprint(&dev.fingerprint) };
+                                let fp_short = if dev.fingerprint.is_empty() {
+                                    String::from("")
+                                } else {
+                                    short_fingerprint(&dev.fingerprint)
+                                };
                                 notif
                                     .summary("GuardianUSB: Unknown device")
                                     .body(&format!(
                                         "{} {}\nserial={} type={}\nfingerprint={}",
-                                        dev.vendor_id, dev.product_id, dev.serial, dev.device_type, fp_short
+                                        dev.vendor_id,
+                                        dev.product_id,
+                                        dev.serial,
+                                        dev.device_type,
+                                        fp_short
                                     ))
                                     .icon("security-high")
-                                    .action("approve", &format!("Approve for {} minutes", (default_ttl/60).max(1)))
+                                    .action(
+                                        "approve",
+                                        &format!(
+                                            "Approve for {} minutes",
+                                            (default_ttl / 60).max(1)
+                                        ),
+                                    )
                                     .action("revoke", "Revoke device");
 
                                 if let Ok(handle) = notif.show() {
@@ -89,9 +110,24 @@ async fn main() -> Result<()> {
                                                 // Use a small runtime for this one-off call
                                                 let rt = tokio::runtime::Runtime::new().unwrap();
                                                 rt.block_on(async move {
-                                                    if let Ok(conn) = zbus::Connection::system().await {
-                                                        if let Ok(proxy) = zbus::Proxy::new(&conn, "org.guardianusb.Daemon", "/org/guardianusb/Daemon", "org.guardianusb.Daemon").await {
-                                                            let _ = proxy.call("request_ephemeral_allow", &(device_id, ttl, uid)).await as zbus::Result<bool>;
+                                                    if let Ok(conn) =
+                                                        zbus::Connection::system().await
+                                                    {
+                                                        if let Ok(proxy) = zbus::Proxy::new(
+                                                            &conn,
+                                                            "org.guardianusb.Daemon",
+                                                            "/org/guardianusb/Daemon",
+                                                            "org.guardianusb.Daemon",
+                                                        )
+                                                        .await
+                                                        {
+                                                            let _ = proxy
+                                                                .call(
+                                                                    "request_ephemeral_allow",
+                                                                    &(device_id, ttl, uid),
+                                                                )
+                                                                .await
+                                                                as zbus::Result<bool>;
                                                         }
                                                     }
                                                 });
@@ -99,9 +135,20 @@ async fn main() -> Result<()> {
                                                 let rt = tokio::runtime::Runtime::new().unwrap();
                                                 let dev = device_id.clone();
                                                 rt.block_on(async move {
-                                                    if let Ok(conn) = zbus::Connection::system().await {
-                                                        if let Ok(proxy) = zbus::Proxy::new(&conn, "org.guardianusb.Daemon", "/org/guardianusb/Daemon", "org.guardianusb.Daemon").await {
-                                                            let res: zbus::Result<bool> = proxy.call("revoke_device", &(dev)).await;
+                                                    if let Ok(conn) =
+                                                        zbus::Connection::system().await
+                                                    {
+                                                        if let Ok(proxy) = zbus::Proxy::new(
+                                                            &conn,
+                                                            "org.guardianusb.Daemon",
+                                                            "/org/guardianusb/Daemon",
+                                                            "org.guardianusb.Daemon",
+                                                        )
+                                                        .await
+                                                        {
+                                                            let res: zbus::Result<bool> = proxy
+                                                                .call("revoke_device", &(dev))
+                                                                .await;
                                                             let _ = res;
                                                         }
                                                     }
@@ -118,7 +165,9 @@ async fn main() -> Result<()> {
                             println!("USB device removed: {}", dev_id);
                             let mut guard = last_seen.lock().unwrap();
                             if let Some(d) = guard.as_ref() {
-                                if d.id == dev_id { *guard = None; }
+                                if d.id == dev_id {
+                                    *guard = None;
+                                }
                             }
                         }
                     }
