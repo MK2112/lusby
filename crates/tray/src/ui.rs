@@ -50,7 +50,9 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _ : Result<bool> = proxy.call("request_ephemeral_allow", &(device_id, ttl, uid)).await;
+                                let _: Result<bool> = proxy
+                                    .call("request_ephemeral_allow", &(device_id, ttl, uid))
+                                    .await;
                             }
                         }
                     });
@@ -79,7 +81,8 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _ : Result<bool> = proxy.call("revoke_device", &(device_id)).await;
+                                let _: Result<bool> =
+                                    proxy.call("revoke_device", &(device_id)).await;
                             }
                         }
                     });
