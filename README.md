@@ -1,33 +1,93 @@
-# guardian-usb
+# guardian-USB
 
-guardian-usb enforces a strict USB "deny‑by‑default" policy on Linux Mint/Ubuntu/Debian by orchestrating [usbguard](https://github.com/USBGuard/usbguard) via a privileged daemon and user‑space tools on Linux Mint/Ubuntu/Debian.<br>
-When an unknown USB device is connected, it is blocked automatically and a user notification can be shown via the tray. You as the user can:
-- Approve a device for a limited time (TTL). Temporal approvals are automatically revoked on timeout/suspend/lock via `systemd‑logind`.
-- Apply a persistent allow‑list using a cryptographically signed baseline (Ed25519). Baselines are verified against trusted public keys and then converted into `usbguard` rules atomically.
+guardian-USB enforces a "deny‑by‑default" USB policy on Debian-based Linux distributions (Ubuntu, Mint, etc.) by orchestrating [usbguard](https://github.com/USBGuard/usbguard) via a privileged daemon and user‑space tools. When an unknown USB device is connected, it gets blocked automatically. A user notification about this can be shown via the tray.
+
+**You as the user can:**
+- Approve a device for a limited time (TTL). Temporal approvals are automatically revoked on timeout/suspend/lock,
+- Apply a persistent allow‑list using a cryptographically signed baseline (Ed25519); baselines are verified against trusted public keys and then converted into `usbguard` rules,
 - Inspect and verify a tamper‑evident audit log of all actions (hash‑chained JSONL).
 
-**To allow for all this, guardian-usb provides:**
-- Privileged daemon `guardianusb-daemon` (root) manages usbguard rules, applies signed baselines, writes tamper‑evident audit logs, and exposes a D‑Bus API
-- Unprivileged tray app `guardianusb-tray` subscribes to daemon signals and shows prompts/notifications (GTK/libappindicator optional; event‑driven, *no* polling)
-- CLI `guardianusbctl`: scripting and configuration helper (e.g., list devices, status, baseline/audit verification)
-
-The system is **event‑driven** (udev/D‑Bus) and **low power** (no polling).
+**guardian-USB provides:**
+- A privileged daemon `guardianusb-daemon` (root) for managing `usbguard` rules, applying signed baselines, writing tamper‑evident audit logs, and exposing a D‑Bus API,
+- An unprivileged tray app `guardianusb-tray` that subscribes to daemon signals and shows prompts/notifications,
+- A CLI `guardianusbctl`: Scripting and configuration helper (e.g., list devices, status, baseline/audit verification).
 
 ## Key benefits
-- Unknown USB devices are blocked by default.
-- Integrates with `usbguard` and confines the daemon with an AppArmor profile.
-- Unprivileged users can request short‑lived approvals; persistent changes are gated by PolicyKit (`org.guardianusb.manage`).
-- Signed baselines (Ed25519) ensure only approved device lists are applied.
-- Append‑only, hash‑chained JSONL audit logs; verifiable via CLI for tamper‑evident auditing.
-- Reacts to udev and D‑Bus signals; no polling, low resource demands.
-- Optional tray app to surface prompts/notifications and one‑click temporary approvals.
 
-## Quickstart: Using a USB stick
-This walkthrough shows the most common flow: plugging in a USB mass‑storage device and allowing it temporarily.
+- Unknown USB devices get blocked by default,
+- Integrates with `usbguard` and confines the daemon with an AppArmor profile,
+- Unprivileged users can request short‑lived approvals; persistent changes are gated by PolicyKit (`org.guardianusb.manage`),
+- Signed baselines (Ed25519) ensure only approved device lists are ever applicable,
+- Append‑only, hash‑chained JSONL audit logs; verifiable via CLI for tamper‑evident auditing,
+- Reacts to udev and D‑Bus signals; no polling, low resource demands,
+- Optional tray app to surface prompts/notifications and allow for one‑click temporary approvals.
+
+## Requirements
+
+- Linux Mint (Ubuntu/Debian based)
+- System packages:
+  - `usbguard` (daemon + CLI)
+  - `policykit-1`
+  - `pkg-config`, `build-essential` (for building from source)
+  - Optional (udev listener): `libudev-dev`
+  - Optional (GTK tray): `libgtk-3-dev`, `libayatana-appindicator3-dev`
+- Rust toolchain (stable): `rustup`, `cargo`
+
+### Quick Install (recommended)
+guardian-USB provides an installer script:
+
+```bash
+cd guardian-usb
+chmod +x install.sh
+sudo ./install.sh
+```
+
+**The script will:**
+- Install required dependencies (system packages + Rust toolchain if not present)
+- Build and install the `.deb` package for guardian-USB daemon from source
+- Install the accompanying tray application
+- Set up configuration and log directories
+- Load the AppArmor profile
+- Enable and start the systemd service
+
+Once complete, check the status with:
+```bash
+systemctl status guardianusb-daemon
+```
+
+Follow logs with:
+```bash
+journalctl -u guardianusb-daemon -f
+```
+
+### Tray Application
+
+The tray application (`guardianusb-tray`) provides a system tray icon with a user interface for managing USB devices. It shows notifications when unknown devices are detected and allows quick approval/revocation of devices.
+
+#### Features
+
+- **Automatic Startup**: The tray application is automatically set up to start when you log in to your desktop environment.
+- **Device Notifications**: Get desktop notifications when unknown USB devices are connected.
+- **Quick Actions**: Right-click the tray icon to:
+  - **Approve for X minutes**: Temporarily allow the last detected device
+  - **Revoke last device**: Revoke access from the last detected device
+  - **Show last device details**: View detailed information about the last detected device
+  - **Quit**: Exit the tray application
+
+#### Headless Mode (Advanced)
+
+For server environments without a GUI, you can run the tray application in headless mode, which will only log to stdout:
+
+```bash
+cargo build --release -p guardianusb-tray --no-default-features
+target/release/guardianusb-tray
+```
+
+## Quickstart: Using a USB stick temporarily
 
 **Prerequisites:**
-- You have followed "Recommended Installation" and started `guardianusb-daemon` and `usbguard`.
-- Optional: start the tray (`guardianusb-tray`) for notifications.
+- You followed the "Recommended Installation" which automatically starts `guardianusb-daemon` and `usbguard`.
+- The tray application should start automatically at login. If not, you can start it manually with `guardianusb-tray &`
 
 1) Plug in the USB stick
 - It will be blocked by default. If the tray is running, you’ll see an "Unknown USB device" notification.
@@ -213,91 +273,6 @@ sudo busctl call org.guardianusb.Daemon /org/guardianusb/Daemon org.guardianusb.
 - `crates/backend-usbguard/`: Backend integrating with the `usbguard` CLI.
 - `crates/common/`: Shared types, fingerprinting, canonical JSON signing/verification, audit utilities.
 
-## Requirements
-
-- Linux Mint (Ubuntu/Debian based)
-- System packages:
-  - `usbguard` (daemon + CLI)
-  - `policykit-1`
-  - `pkg-config`, `build-essential` (for building from source)
-  - Optional (udev listener): `libudev-dev`
-  - Optional (GTK tray): `libgtk-3-dev`, `libayatana-appindicator3-dev`
-- Rust toolchain (stable): `rustup`, `cargo`
-
-Install prerequisites:
-```bash
-sudo apt update
-sudo apt install -y usbguard policykit-1 pkg-config build-essential
-# Optional for udev feature
-sudo apt install -y libudev-dev
-# Optional for GTK tray UI
-sudo apt install -y libgtk-3-dev libayatana-appindicator3-dev
-# Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
-```
-
-## Recommended Installation (via .deb)
-
-This produces a clean system install with systemd, polkit, AppArmor, and config files in place.
-
-1) Build release artifacts and the `.deb`
-```bash
-cargo install cargo-deb --locked
-cargo build --release --workspace
-cd crates/daemon
-cargo deb --no-build --no-strip
-```
-
-The `.deb` is created at `crates/daemon/target/debian/guardianusb-daemon_*.deb`.
-
-2) Install the package
-```bash
-sudo dpkg -i guardianusb-daemon_*.deb
-```
-
-This installs:
-- `/usr/sbin/guardianusb-daemon`
-- `/lib/systemd/system/guardianusb-daemon.service`
-- `/usr/share/polkit-1/actions/org.guardianusb.manage.policy`
-- `/etc/apparmor.d/usr.sbin.guardianusb-daemon`
-- `/etc/guardianusb/config.toml`
-
-3) Create and secure directories
-```bash
-sudo mkdir -p /etc/guardianusb/baselines
-sudo mkdir -p /etc/guardianusb/trusted_pubkeys
-sudo mkdir -p /var/lib/guardianusb
-sudo mkdir -p /var/log/guardianusb
-sudo chown -R root:root /etc/guardianusb /var/lib/guardianusb /var/log/guardianusb
-sudo chmod 700 /etc/guardianusb /var/lib/guardianusb
-sudo chmod 600 /etc/guardianusb/config.toml
-sudo touch /var/log/guardianusb/audit.log && sudo chmod 600 /var/log/guardianusb/audit.log
-```
-
-4) Configure usbguard
-```bash
-sudo systemctl enable --now usbguard
-```
-
-5) AppArmor
-```bash
-sudo apparmor_parser -r -W /etc/apparmor.d/usr.sbin.guardianusb-daemon
-sudo aa-enforce /etc/apparmor.d/usr.sbin.guardianusb-daemon
-```
-
-6) Start and enable the daemon
-```bash
-sudo systemctl enable --now guardianusb-daemon
-systemctl status guardianusb-daemon
-journalctl -u guardianusb-daemon -f
-```
-
-7) Optional: start the tray app (unprivileged user)
-
-See "From Source" to build and run `guardianusb-tray`.<br>
-The default tray prints signal messages to `stdout`; the GTK/libappindicator UI is provided behind the `tray-ui` feature.
-
 ## From Source (development)
 
 Clone and build:
@@ -413,15 +388,3 @@ sudo dpkg -r guardianusb-daemon
 # Optional cleanup (destructive)
 sudo rm -rf /etc/guardianusb /var/lib/guardianusb /var/log/guardianusb/audit.log
 ```
-
-## Packaging scripts (manual installs)
-For non-.deb scenarios, the repository includes helper scripts under `packaging/`:
-- `packaging/install.sh`: installs binaries (if present), systemd unit, polkit action, AppArmor profile; creates config and data directories with strict permissions; enables services.
-- `packaging/postinstall_check.sh`: verifies `usbguard`/daemon services, polkit action, AppArmor profile, directory/file permissions, D‑Bus name ownership, and a basic D‑Bus call.
-
-Usage (after building with `cargo build --release --workspace`):
-```bash
-sudo bash packaging/install.sh
-sudo bash packaging/postinstall_check.sh
-```
-These scripts are conservative and aim to keep permissions tight. Review them before use in production environments.
