@@ -1,4 +1,6 @@
 use std::os::unix::io::AsRawFd;
+use std::os::unix::net::UnixDatagram;
+use std::thread;
 
 use anyhow::Result;
 use tokio::io::unix::AsyncFd;
@@ -16,22 +18,40 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
     let mut monitor = udev::MonitorBuilder::new()?;
     monitor.match_subsystem("usb")?;
     let socket = monitor.listen()?;
-    let async_fd = AsyncFd::new(socket.as_raw_fd())?;
+    
+    // Create a Unix datagram socket for async I/O
+    let (sock1, sock2) = UnixDatagram::pair()?;
+    let async_fd = AsyncFd::new(sock1)?;
+    
+    // Spawn a thread to forward udev events to our socket
+    thread::spawn(move || {
+        let mut buffer = [0; 1];
+        loop {
+            if socket.receive_event().is_ok() {
+                // Just notify that we got an event
+                let _ = sock2.send(&[1]);
+            }
+        }
+    });
 
     loop {
         let mut guard = async_fd.readable_mut().await?;
-        guard.try_io(|_| {
-            match socket.receive_event() {
-                Ok(event) => {
-                    let action = event.action().unwrap_or("unknown").to_string();
-                    let devnode = event
-                        .devnode()
-                        .and_then(|p| p.to_str())
-                        .unwrap_or("")
-                        .to_string();
+        let _ = guard.try_io(|_| {
+            // Clear the notification
+            let mut buf = [0; 1];
+            let _ = async_fd.get_ref().recv(&mut buf);
+            
+            // Process all pending udev events
+            while let Ok(event) = socket.receive_event() {
+                let action = event.action().unwrap_or("unknown").to_string();
+                let devnode = event
+                    .devnode()
+                    .and_then(|p| p.to_str())
+                    .unwrap_or("")
+                    .to_string();
 
-                    let vendor = event
-                        .property_value("ID_VENDOR_ID")
+                let vendor = event
+                    .property_value("ID_VENDOR_ID")
                         .and_then(|s| s.to_str())
                         .map(|s| format!("0x{}", s))
                         .unwrap_or_default();
@@ -82,7 +102,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                     let conn = connection.clone();
                     let info_clone = info.clone();
                     tokio::spawn(async move {
-                        match Daemon::new(&conn).await {
+                        match DaemonState::new_daemon(&conn).await {
                             Ok(proxy) => {
                                 if action == "add" || action == "bind" {
                                     if let Err(e) = proxy.unknown_device_inserted(&info_clone).await
@@ -98,10 +118,10 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                             Err(e) => eprintln!("Failed to create D-Bus proxy: {}", e),
                         }
                     });
-                    Ok(())
                 }
-                Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
+                Err(e) => eprintln!("Error receiving udev event: {}", e),
             }
+            Ok(())
         })?;
         guard.clear_ready();
     }
