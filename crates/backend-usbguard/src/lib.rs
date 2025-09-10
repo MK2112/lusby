@@ -21,10 +21,10 @@ mod tests {
     #[test]
     fn parse_allows_basic_lines() {
         let sample = r#"
-0: allow id 1d6b:0002 serial "" name "xHCI Host Controller" hash "abcd" parent-hash "-" via-port "1-0:1.0" with-interface 09:00:00
-1: block id 046d:c534 serial "ABC123" name "USB Receiver" hash "efgh" parent-hash "..." via-port "2-1" with-interface 03:01:01 with-interface +hid
-2: allow id 0781:5581 serial "1234567890ABCDEF" name "SanDisk Ultra" hash "ijkl" parent-hash "..." via-port "2-2" with-interface +mass-storage
-"#;
+                                    0: allow id 1d6b:0002 serial "" name "xHCI Host Controller" hash "abcd" parent-hash "-" via-port "1-0:1.0" with-interface 09:00:00
+                                    1: block id 046d:c534 serial "ABC123" name "USB Receiver" hash "efgh" parent-hash "..." via-port "2-1" with-interface 03:01:01 with-interface +hid
+                                    2: allow id 0781:5581 serial "1234567890ABCDEF" name "SanDisk Ultra" hash "ijkl" parent-hash "..." via-port "2-2" with-interface +mass-storage
+                                    "#;
         let devices = UsbguardBackend::parse_list_devices(sample);
         assert!(devices.iter().any(|d| d.vendor_id == "0x1d6b" && d.product_id == "0x0002"));
         let logi = devices.iter().find(|d| d.vendor_id == "0x046d" && d.product_id == "0xC534".to_lowercase());
@@ -59,13 +59,12 @@ mod tests {
         fs::rename(tmp_path, rules_path).map_err(|e| BackendError::Cmd(format!("rename rules: {e}")))?;
 
         // Reload usbguard
-        match Self::run_usbguard(&["reload"]) {
+        match UsbguardBackend::run_usbguard(&["reload"]) {
             Ok(_) => Ok(()),
             Err(e) => {
-                // Attempt rollback
                 if fs::metadata(bak_path).is_ok() {
                     let _ = fs::rename(bak_path, rules_path);
-                    let _ = Self::run_usbguard(&["reload"]);
+                    let _ = UsbguardBackend::run_usbguard(&["reload"]);
                 }
                 Err(e)
             }
