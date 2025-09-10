@@ -281,7 +281,7 @@ impl DaemonState {
         {
             return false;
         }
-        let bytes = match base64::decode(key_bytes_b64) {
+        let bytes = match base64::engine::general_purpose::STANDARD.decode(key_bytes_b64) {
             Ok(b) => b,
             Err(_) => return false,
         };

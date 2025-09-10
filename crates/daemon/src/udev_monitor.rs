@@ -3,13 +3,14 @@ use guardianusb_common::fingerprint::{compute_fingerprint, FingerprintInput};
 use guardianusb_common::types::DeviceInfo;
 use tokio::io::unix::AsyncFd;
 use zbus::Connection;
+use crate::dbus::DaemonProxy;
 
 const DBUS_PATH: &str = "/org/guardianusb/Daemon";
 
 pub async fn run_udev_listener(connection: Connection) -> Result<()> {
     // Build a udev monitor for USB subsystem
     let mut builder = udev::MonitorBuilder::new()?;
-    builder.match_subsystem_devtype("usb", None)?;
+    builder.match_subsystem("usb")?;
     let socket = builder.listen()?; // blocking fd
     let async_fd = AsyncFd::new(socket)?;
 
@@ -18,7 +19,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
         match guard.try_io(|inner| {
             let sock = inner.get_ref();
             // Receive one event
-            match sock.receive_event() {
+            match sock.next() {
                 Ok(event) => {
                     let action = event.action().unwrap_or("");
                     let devnode = event
@@ -74,14 +75,11 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                     // Emit D-Bus signal based on action
                     let conn = connection.clone();
                     tokio::spawn(async move {
-                        if let Ok(ctx) = zbus::SignalContext::new(&conn, DBUS_PATH) {
+                        if let Ok(proxy) = crate::dbus::DaemonProxy::new(&conn).await {
                             if action == "add" {
-                                let _ =
-                                    crate::dbus::DaemonState::unknown_device_inserted(&ctx, &info)
-                                        .await;
+                                let _ = proxy.unknown_device_inserted(&info).await;
                             } else if action == "remove" {
-                                let _ =
-                                    crate::dbus::DaemonState::device_removed(&ctx, &info.id).await;
+                                let _ = proxy.device_removed(&info.id).await;
                             }
                         }
                     });
