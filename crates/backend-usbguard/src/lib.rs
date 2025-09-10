@@ -36,48 +36,6 @@ mod tests {
         let storage = devices.iter().find(|d| d.vendor_id == "0x0781");
         assert!(storage.is_some());
     }
-
-    /// Atomically write new rules content to /etc/usbguard/rules.conf and reload usbguard.
-    /// On reload failure, restore previous rules.
-    pub fn apply_rules_atomically(rules_content: &str) -> Result<(), BackendError> {
-        let rules_path = "/etc/usbguard/rules.conf";
-        let tmp_path = "/etc/usbguard/rules.conf.tmp";
-        let bak_path = "/etc/usbguard/rules.conf.bak";
-
-        // Write tmp file with restrictive perms
-        {
-            let mut f = File::create(tmp_path)
-                .map_err(|e| BackendError::Cmd(format!("create tmp: {e}")))?;
-            f.set_permissions(fs::Permissions::from_mode(0o600))
-                .map_err(|e| BackendError::Cmd(format!("chmod tmp: {e}")))?;
-            f.write_all(rules_content.as_bytes())
-                .map_err(|e| BackendError::Cmd(format!("write tmp: {e}")))?;
-            f.sync_all()
-                .map_err(|e| BackendError::Cmd(format!("fsync tmp: {e}")))?;
-        }
-
-        // Backup existing rules if present
-        if fs::metadata(rules_path).is_ok() {
-            fs::copy(rules_path, bak_path)
-                .map_err(|e| BackendError::Cmd(format!("backup rules: {e}")))?;
-        }
-
-        // Move tmp into place
-        fs::rename(tmp_path, rules_path)
-            .map_err(|e| BackendError::Cmd(format!("rename rules: {e}")))?;
-
-        // Reload usbguard
-        match UsbguardBackend::run_usbguard(&["reload"]) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                if fs::metadata(bak_path).is_ok() {
-                    let _ = fs::rename(bak_path, rules_path);
-                    let _ = UsbguardBackend::run_usbguard(&["reload"]);
-                }
-                Err(e)
-            }
-        }
-    }
 }
 
 #[derive(Clone, Default)]
