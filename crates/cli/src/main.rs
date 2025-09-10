@@ -7,7 +7,6 @@ use guardianusb_common::audit::{verify_chain, AuditEntry};
 use guardianusb_common::baseline::{Baseline, DeviceEntry};
 use guardianusb_common::types::DeviceInfo;
 use rand::rngs::OsRng;
-use serde_json;
 use std::fs;
 use std::path::PathBuf;
 use zbus::Connection;
@@ -178,7 +177,7 @@ async fn main() -> Result<()> {
                     let dev = DeviceEntry {
                         vendor_id: info.vendor_id,
                         product_id: info.product_id,
-                        serial: serial.or_else(|| {
+                        serial: serial.or({
                             if info.serial.is_empty() {
                                 None
                             } else {
