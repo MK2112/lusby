@@ -1,9 +1,9 @@
+use crate::dbus::DaemonProxy;
 use anyhow::Result;
 use guardianusb_common::fingerprint::{compute_fingerprint, FingerprintInput};
 use guardianusb_common::types::DeviceInfo;
 use tokio::io::unix::AsyncFd;
 use zbus::Connection;
-use crate::dbus::DaemonProxy;
 
 const DBUS_PATH: &str = "/org/guardianusb/Daemon";
 
