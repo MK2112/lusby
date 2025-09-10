@@ -21,7 +21,7 @@ pub fn start_indicator(
     let indicator = AppIndicator::new("guardianusb", "security-high");
     indicator.set_status(AppIndicatorStatus::Active);
 
-    let menu = gtk::Menu::new();
+    let mut menu = gtk::Menu::new();
 
     // Approve for 5 minutes
     let approve_item = gtk::MenuItem::with_label(&format!(
@@ -50,9 +50,10 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _: Result<bool> = proxy
+                                let _ = proxy
                                     .call("request_ephemeral_allow", &(device_id, ttl, uid))
-                                    .await;
+                                    .await
+                                    .expect("D-Bus call failed");
                             }
                         }
                     });
@@ -81,8 +82,10 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _: Result<bool> =
-                                    proxy.call("revoke_device", &(device_id)).await;
+                                let _: Result<bool> = proxy
+                                    .call("revoke_device", &(device_id))
+                                    .await
+                                    .expect("D-Bus call failed");
                             }
                         }
                     });
@@ -124,7 +127,6 @@ pub fn start_indicator(
     menu.append(&quit_item);
 
     menu.show_all();
-    let mut menu = gtk::Menu::new();
     indicator.set_menu(&mut menu);
 
     // Run GTK main loop in a background thread to avoid blocking async tasks
