@@ -58,14 +58,14 @@ async fn main() -> Result<()> {
     let mut stream = zbus::MessageStream::from(&conn);
     while let Some(Ok(msg)) = stream.next().await {
         let header = msg.header();
-        let path_ok = header.path().map(|p| p.as_str().to_string()) == Some(path_str.to_string());
-        let iface_ok =
-            header.interface().map(|i| i.as_str().to_string()) == Some(iface.to_string());
+        let path_ok = header.path().as_ref().map(|p| p.as_str()) == Some(path_str);
+        let iface_ok = header.interface().as_ref().map(|i| i.as_str()) == Some(iface);
         if msg.message_type() == zbus::MessageType::Signal && path_ok && iface_ok {
-            if let Some(member) = header.member().map(|m| m.as_str().to_string()) {
-                match member.as_str() {
+            if let Some(member) = header.member().as_ref().map(|m| m.as_str()) {
+                match member {
                     "unknown_device_inserted" => {
-                        if let Ok((d,)) = msg.body().deserialize::<(DeviceInfo,)>() {
+                        let body = msg.body();
+                        if let Ok((d,)) = body.deserialize::<(DeviceInfo,)>() {
                             println!(
                                 "Unknown USB device: {} {} serial={} type={}",
                                 d.vendor_id, d.product_id, d.serial, d.device_type
@@ -161,11 +161,12 @@ async fn main() -> Result<()> {
                         }
                     }
                     "device_removed" => {
-                        if let Ok((dev_id,)) = msg.body().deserialize::<(String,)>() {
-                            println!("USB device removed: {}", dev_id);
+                        let body = msg.body();
+                        if let Ok((id,)) = body.deserialize::<(String,)>() {
+                            println!("USB device removed: {}", id);
                             let mut guard = last_seen.lock().unwrap();
                             if let Some(d) = guard.as_ref() {
-                                if d.id == dev_id {
+                                if d.id == *id {
                                     *guard = None;
                                 }
                             }

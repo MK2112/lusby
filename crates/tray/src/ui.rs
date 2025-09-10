@@ -14,11 +14,11 @@ pub fn start_indicator(
     last_seen: Arc<Mutex<Option<DeviceInfo>>>,
     default_ttl_secs: u32,
 ) -> Result<()> {
-    if gtk::is_initialized_main_thread() == false {
+    if !gtk::is_initialized_main_thread() {
         gtk::init()?;
     }
 
-    let indicator = AppIndicator::new("guardianusb", "security-high");
+    let mut indicator = AppIndicator::new("guardianusb", "security-high");
     indicator.set_status(AppIndicatorStatus::Active);
 
     let mut menu = gtk::Menu::new();
@@ -50,10 +50,13 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _ = proxy
-                                    .call("request_ephemeral_allow", &(device_id, ttl, uid))
+                                let _: bool = proxy
+                                    .call_method("request_ephemeral_allow", &(device_id, ttl, uid))
                                     .await
-                                    .expect("D-Bus call failed");
+                                    .expect("D-Bus call failed")
+                                    .body()
+                                    .deserialize()
+                                    .expect("Failed to deserialize response");
                             }
                         }
                     });
@@ -82,10 +85,13 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _: Result<bool> = proxy
-                                    .call("revoke_device", &(device_id))
+                                let _: bool = proxy
+                                    .call_method("revoke_device", &(device_id))
                                     .await
-                                    .expect("D-Bus call failed");
+                                    .expect("D-Bus call failed")
+                                    .body()
+                                    .deserialize()
+                                    .expect("Failed to deserialize response");
                             }
                         }
                     });
@@ -113,7 +119,9 @@ pub fn start_indicator(
                     &text,
                 );
                 dialog.run();
-                dialog.destroy();
+                unsafe {
+                    dialog.destroy();
+                }
             }
         });
     }
@@ -130,7 +138,7 @@ pub fn start_indicator(
     indicator.set_menu(&mut menu);
 
     // Run GTK main loop in a background thread to avoid blocking async tasks
-    std::thread::spawn(|| gtk::main());
+    std::thread::spawn(gtk::main);
 
     Ok(())
 }
