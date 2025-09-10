@@ -112,7 +112,6 @@ impl UsbguardBackend {
             let mut vendor = String::new();
             let mut product = String::new();
             let mut serial = String::new();
-            let mut dtype = String::new();
             // Extract id vid:pid
             if let Some(idx) = line.find(" id ") {
                 let rest = &line[idx + 4..];
@@ -133,13 +132,13 @@ impl UsbguardBackend {
                 }
             }
             // Guess type by presence of with-interface strings
-            if line.contains("with-interface +hid") {
-                dtype = "hid".into();
+            let dtype = if line.contains("with-interface +hid") {
+                "hid"
             } else if line.contains("with-interface +mass-storage") {
-                dtype = "storage".into();
+                "storage"
             } else {
-                dtype = String::from("");
-            }
+                ""
+            };
 
             if !vendor.is_empty() && !product.is_empty() {
                 // fingerprint unknown here; leave empty; daemon can compute if needed
@@ -149,7 +148,7 @@ impl UsbguardBackend {
                     product_id: product,
                     serial,
                     fingerprint: String::new(),
-                    device_type: dtype,
+                    device_type: dtype.to_string(),
                     allowed: line.starts_with("allow"),
                     persistent: line.contains("allow "),
                 });
@@ -224,8 +223,7 @@ impl UsbBackend for UsbguardBackend {
         // Ephemeral authorization via a temporary allow rule
         let device_id = device_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let args_owned = vec!["allow-device".to_string(), device_id];
-            let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
+            let args = ["allow-device", &device_id];
             Self::run_usbguard(&args)
         })
         .await
@@ -237,8 +235,7 @@ impl UsbBackend for UsbguardBackend {
     async fn revoke(&self, device_id: &str) -> bool {
         let device_id = device_id.to_string();
         tokio::task::spawn_blocking(move || {
-            let args_owned = vec!["reject-device".to_string(), device_id];
-            let args: Vec<&str> = args_owned.iter().map(|s| s.as_str()).collect();
+            let args = ["reject-device", &device_id];
             Self::run_usbguard(&args)
         })
         .await
