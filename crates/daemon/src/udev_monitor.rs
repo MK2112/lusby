@@ -1,29 +1,27 @@
-use std::path::Path;
+use std::os::unix::io::AsRawFd;
 
-use anyhow::{Context, Result};
-use tokio::io::unix::{AsyncFd, AsyncFdReadyGuard};
-
+use anyhow::Result;
+use tokio::io::unix::AsyncFd;
 use zbus::Connection;
 
 use guardianusb_common::fingerprint::{compute_fingerprint, FingerprintInput};
 use guardianusb_common::types::DeviceInfo;
 
-use crate::dbus::Daemon;
+use crate::dbus::DaemonState;
 
 const DBUS_PATH: &str = "/org/guardianusb/Daemon";
 
 pub async fn run_udev_listener(connection: Connection) -> Result<()> {
     // Build a udev monitor for USB subsystem
-    let udev = udev::Context::new()?;
-    let mut builder = udev::MonitorBuilder::new()?;
-    builder.match_subsystem("usb")?;
-    let monitor = builder.listen()?;
-    let async_fd = AsyncFd::new(monitor.socket().try_clone()?)?;
+    let mut monitor = udev::MonitorBuilder::new()?;
+    monitor.match_subsystem("usb")?;
+    let socket = monitor.listen()?;
+    let async_fd = AsyncFd::new(socket.as_raw_fd())?;
 
     loop {
         let mut guard = async_fd.readable_mut().await?;
         guard.try_io(|_| {
-            match monitor.receive_event() {
+            match socket.receive_event() {
                 Ok(event) => {
                     let action = event.action().unwrap_or("unknown").to_string();
                     let devnode = event
@@ -104,13 +102,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                 }
                 Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
             }
-        });
-
-        match result {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => eprintln!("Error processing udev event: {}", e),
-            Err(_) => continue,
-        }
+        })?;
         guard.clear_ready();
     }
 }
