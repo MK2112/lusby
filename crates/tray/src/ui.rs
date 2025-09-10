@@ -50,9 +50,7 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _ = proxy
-                                    .call::<bool>("request_ephemeral_allow", &(device_id, ttl, uid))
-                                    .await;
+                                let _ : Result<bool> = proxy.call("request_ephemeral_allow", &(device_id, ttl, uid)).await;
                             }
                         }
                     });
@@ -81,7 +79,7 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _ = proxy.call::<bool>("revoke_device", &(device_id)).await;
+                                let _ : Result<bool> = proxy.call("revoke_device", &(device_id)).await;
                             }
                         }
                     });
@@ -123,7 +121,8 @@ pub fn start_indicator(
     menu.append(&quit_item);
 
     menu.show_all();
-    indicator.set_menu(&menu);
+    let mut menu = gtk::Menu::new();
+    indicator.set_menu(&mut menu);
 
     // Run GTK main loop in a background thread to avoid blocking async tasks
     std::thread::spawn(|| gtk::main());
