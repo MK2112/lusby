@@ -18,11 +18,11 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
     let mut monitor = udev::MonitorBuilder::new()?;
     monitor.match_subsystem("usb")?;
     let socket = monitor.listen()?;
-    
+
     // Create a Unix datagram socket for async I/O
     let (sock1, sock2) = UnixDatagram::pair()?;
     let async_fd = AsyncFd::new(sock1)?;
-    
+
     // Spawn a thread to forward udev events to our socket
     thread::spawn(move || {
         let mut buffer = [0; 1];
@@ -40,18 +40,19 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
             // Clear the notification
             let mut buf = [0; 1];
             let _ = async_fd.get_ref().recv(&mut buf);
-            
-            // Process all pending udev events
-            while let Ok(event) = socket.receive_event() {
-                let action = event.action().unwrap_or("unknown").to_string();
-                let devnode = event
-                    .devnode()
-                    .and_then(|p| p.to_str())
-                    .unwrap_or("")
-                    .to_string();
 
-                let vendor = event
-                    .property_value("ID_VENDOR_ID")
+            // Process all pending udev events
+            match socket.receive_event() {
+                Ok(event) => {
+                    let action = event.action().unwrap_or("unknown").to_string();
+                    let devnode = event
+                        .devnode()
+                        .and_then(|p| p.to_str())
+                        .unwrap_or("")
+                        .to_string();
+
+                    let vendor = event
+                        .property_value("ID_VENDOR_ID")
                         .and_then(|s| s.to_str())
                         .map(|s| format!("0x{}", s))
                         .unwrap_or_default();
