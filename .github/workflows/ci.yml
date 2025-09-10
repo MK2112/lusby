@@ -65,23 +65,50 @@ jobs:
           # Start usbguard in test mode
           sudo mkdir -p /etc/usbguard
           echo "Rule=block" | sudo tee /etc/usbguard/usbguard-daemon.conf > /dev/null
-          sudo usbguard generate-policy > /etc/usbguard/rules.conf
+          # Create rules file with proper permissions
+          sudo touch /etc/usbguard/rules.conf
+          sudo chmod 644 /etc/usbguard/rules.conf
+          # Generate policy and write to file
+          sudo usbguard generate-policy | sudo tee /etc/usbguard/rules.conf > /dev/null
+          # Ensure usbguard can read the rules file
+          sudo chown -R root:root /etc/usbguard
+          sudo chmod -R 644 /etc/usbguard/*
+          # Start usbguard
           sudo systemctl start usbguard
 
       - name: Run integration tests
         env:
           GU_TEST_SYSTEM: 1
         run: |
+          set -e
           # Start the daemon in the background
           cargo build -p guardianusb-daemon
           sudo target/debug/guardianusb-daemon &
           DAEMON_PID=$!
           
-          # Run the integration tests
-          cargo test -p guardianusb-daemon --test dbus_integration -- --nocapture --ignored
+          # Give the daemon a moment to start
+          sleep 2
           
-          # Clean up
-          kill $DAEMON_PID
+          # Check if daemon is running
+          if ! ps -p $DAEMON_PID > /dev/null; then
+            echo "Error: Daemon failed to start"
+            exit 1
+          fi
+          
+          # Run tests
+          cargo test --no-fail-fast --workspace --exclude guardianusb-tray
+          
+          # Cleanup
+          if ps -p $DAEMON_PID > /dev/null; then
+            echo "Stopping daemon..."
+            sudo kill $DAEMON_PID || true
+            # Give it a moment to shut down
+            sleep 1
+            # Force kill if still running
+            if ps -p $DAEMON_PID > /dev/null; then
+              sudo kill -9 $DAEMON_PID || true
+            fi
+          fi
 
   build:
     name: Build
