@@ -2,17 +2,17 @@
 
 guardian-USB enforces a "deny‑by‑default" USB policy on Debian-based Linux distributions (Ubuntu, Mint, etc.) by orchestrating [usbguard](https://github.com/USBGuard/usbguard) via a privileged daemon and user‑space tools. When an unknown USB device is connected, it gets blocked automatically. A user notification about this can be shown via the tray.
 
-**You as the user can:**
+**The user can:**
 - Approve a device for a limited time (TTL). Temporal approvals are automatically revoked on timeout/suspend/lock,
 - Apply a persistent allow‑list using a cryptographically signed baseline (Ed25519); baselines are verified against trusted public keys and then converted into `usbguard` rules,
 - Inspect and verify a tamper‑evident audit log of all actions (hash‑chained JSONL).
 
-**guardian-USB provides:**
+**guardian-USB consists of:**
 - A privileged daemon `guardianusb-daemon` (root) for managing `usbguard` rules, applying signed baselines, writing tamper‑evident audit logs, and exposing a D‑Bus API,
 - An unprivileged tray app `guardianusb-tray` that subscribes to daemon signals and shows prompts/notifications,
 - A CLI `guardianusbctl`: Scripting and configuration helper (e.g., list devices, status, baseline/audit verification).
 
-## Key benefits
+## Benefits
 
 - Unknown USB devices get blocked by default,
 - Integrates with `usbguard` and confines the daemon with an AppArmor profile,
@@ -69,7 +69,7 @@ The tray application (`guardianusb-tray`) provides a system tray icon with a use
 - **Automatic Startup**: The tray application is automatically set up to start when you log in to your desktop environment.
 - **Device Notifications**: Get desktop notifications when unknown USB devices are connected.
 - **Quick Actions**: Right-click the tray icon to:
-  - **Approve for X minutes**: Temporarily allow the last detected device
+  - **Approve for $X$ minutes**: Temporarily allow the last detected device
   - **Revoke last device**: Revoke access from the last detected device
   - **Show last device details**: View detailed information about the last detected device
   - **Quit**: Exit the tray application
