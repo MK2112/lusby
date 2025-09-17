@@ -1,6 +1,6 @@
+use async_trait::async_trait;
 use guardianusb_common::backend::UsbBackend;
 use guardianusb_common::types::DeviceInfo;
-use async_trait::async_trait;
 
 #[derive(Clone, Default)]
 pub struct MockBackend {
@@ -19,7 +19,9 @@ impl MockBackend {
             allowed: false,
             persistent: false,
         };
-        Self { devices: std::sync::Arc::new(std::sync::Mutex::new(vec![sample])) }
+        Self {
+            devices: std::sync::Arc::new(std::sync::Mutex::new(vec![sample])),
+        }
     }
 }
 
@@ -30,7 +32,12 @@ impl UsbBackend for MockBackend {
     }
 
     async fn get_device(&self, device_id: &str) -> Option<DeviceInfo> {
-        self.devices.lock().unwrap().iter().find(|d| d.id == device_id).cloned()
+        self.devices
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|d| d.id == device_id)
+            .cloned()
     }
 
     async fn allow_ephemeral(&self, _device_id: &str, _ttl_secs: u32) -> bool {

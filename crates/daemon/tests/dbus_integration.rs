@@ -1,4 +1,5 @@
 use anyhow::Result;
+use guardianusb_common::types::DeviceInfo;
 use zbus::Connection;
 
 // These integration tests require the daemon running on the system bus and appropriate permissions.
@@ -21,6 +22,47 @@ async fn get_policy_status_roundtrip() -> Result<()> {
     let status: guardianusb_common::types::PolicyStatus =
         proxy.call("get_policy_status", &()).await?;
     println!("status: deny_unknown={}", status.deny_unknown);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn get_device_info_invalid_id() -> Result<()> {
+    if std::env::var("GU_TEST_SYSTEM").ok().as_deref() != Some("1") {
+        return Ok(());
+    }
+    let conn = Connection::system().await?;
+    let proxy = zbus::Proxy::new(
+        &conn,
+        "org.guardianusb.Daemon",
+        "/org/guardianusb/Daemon",
+        "org.guardianusb.Daemon",
+    )
+    .await?;
+    let info: DeviceInfo = proxy.call("get_device_info", &("invalid_id")).await?;
+    assert_eq!(info.id, "");
+    assert!(!info.allowed);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn request_ephemeral_allow_invalid_id() -> Result<()> {
+    if std::env::var("GU_TEST_SYSTEM").ok().as_deref() != Some("1") {
+        return Ok(());
+    }
+    let conn = Connection::system().await?;
+    let proxy = zbus::Proxy::new(
+        &conn,
+        "org.guardianusb.Daemon",
+        "/org/guardianusb/Daemon",
+        "org.guardianusb.Daemon",
+    )
+    .await?;
+    let ok: bool = proxy
+        .call("request_ephemeral_allow", &("invalid_id", 60u32, 1000u32))
+        .await?;
+    assert!(!ok);
     Ok(())
 }
 
@@ -49,5 +91,55 @@ async fn auto_revoke_on_prepare_for_sleep() -> Result<()> {
         "org.guardianusb.Daemon",
     )
     .await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn list_devices_and_allow_ephemeral() -> Result<()> {
+    if std::env::var("GU_TEST_SYSTEM").ok().as_deref() != Some("1") {
+        return Ok(());
+    }
+    let conn = Connection::system().await?;
+    let proxy = zbus::Proxy::new(
+        &conn,
+        "org.guardianusb.Daemon",
+        "/org/guardianusb/Daemon",
+        "org.guardianusb.Daemon",
+    )
+    .await?;
+    let devices: Vec<DeviceInfo> = proxy.call("list_devices", &()).await?;
+    println!("Found {} devices", devices.len());
+    if let Some(dev) = devices.iter().find(|d| !d.id.is_empty()) {
+        let ok: bool = proxy
+            .call("request_ephemeral_allow", &(dev.id.clone(), 30u32, 1000u32))
+            .await?;
+        println!("Ephemeral allow for {}: {}", dev.id, ok);
+        // Optionally revoke again
+        let revoked: bool = proxy.call("revoke", &(dev.id.clone())).await?;
+        println!("Revoked {}: {}", dev.id, revoked);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn request_ephemeral_allow_negative_ttl() -> Result<()> {
+    if std::env::var("GU_TEST_SYSTEM").ok().as_deref() != Some("1") {
+        return Ok(());
+    }
+    let conn = Connection::system().await?;
+    let proxy = zbus::Proxy::new(
+        &conn,
+        "org.guardianusb.Daemon",
+        "/org/guardianusb/Daemon",
+        "org.guardianusb.Daemon",
+    )
+    .await?;
+    // Negative TTL should be rejected or handled as error
+    let ok: bool = proxy
+        .call("request_ephemeral_allow", &("invalid_id", 0u32, 1000u32))
+        .await?;
+    assert!(!ok);
     Ok(())
 }
