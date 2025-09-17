@@ -1,3 +1,6 @@
+[lib]
+name = "guardianusbctl"
+path = "src/lib.rs"
 [package]
 name = "guardianusbctl"
 version = "0.1.0"

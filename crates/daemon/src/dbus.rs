@@ -28,6 +28,9 @@ pub struct DaemonState {
 }
 
 impl DaemonState {
+    pub fn ephemeral_count(&self) -> usize {
+        self.inner.lock().unwrap().ephemeral.len()
+    }
     pub async fn revoke_all_ephemeral(&self) {
         let ids: Vec<String> = self
             .inner
@@ -84,8 +87,14 @@ impl DaemonState {
     where
         B: UsbBackend + 'static,
     {
-        let audit =
-            AuditLogger::new(PathBuf::from("/var/log/guardianusb/audit.log")).expect("init audit");
+        Self::new_with_audit_path(backend, PathBuf::from("/var/log/guardianusb/audit.log"))
+    }
+
+    pub fn new_with_audit_path<B>(backend: B, audit_path: PathBuf) -> Self
+    where
+        B: UsbBackend + 'static,
+    {
+        let audit = AuditLogger::new(audit_path).expect("init audit");
         Self {
             inner: Arc::new(Mutex::new(StateInner {
                 deny_unknown: true,
@@ -111,6 +120,21 @@ impl DaemonState {
     }
 
     async fn request_ephemeral_allow(&self, device_id: &str, ttl: u32, requester_uid: u32) -> bool {
+        // Eingabevalidierung
+        let valid_id = !device_id.is_empty()
+            && device_id.len() <= 64
+            && device_id.chars().all(|c| c.is_ascii());
+        let valid_ttl = ttl >= 1 && ttl <= 86400;
+        let valid_uid = requester_uid > 0;
+        if !valid_id || !valid_ttl || !valid_uid {
+            self.audit.lock().unwrap().log(
+                "ephemeral_allow_reject",
+                Some(device_id.to_string()),
+                "invalid_input",
+                Some(requester_uid),
+            );
+            return false;
+        }
         let ok = self.backend.allow_ephemeral(device_id, ttl).await;
         self.audit.lock().unwrap().log(
             "ephemeral_allow",
@@ -149,9 +173,29 @@ impl DaemonState {
         }
         // Load baseline JSON, verify against any trusted key, then copy into baselines_dir
         let path = PathBuf::from(_baseline_path);
+        if path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            self.audit.lock().unwrap().log(
+                "security",
+                None,
+                "baseline_path_traversal_attempt",
+                None,
+            );
+            return false;
+        }
         let data = match fs::read(&path) {
             Ok(d) => d,
-            Err(_) => return false,
+            Err(e) => {
+                self.audit.lock().unwrap().log(
+                    "security",
+                    None,
+                    &format!("baseline_read_failed: {}", e),
+                    None,
+                );
+                return false;
+            }
         };
         let baseline: Baseline = match serde_json::from_slice(&data) {
             Ok(b) => b,
@@ -186,9 +230,38 @@ impl DaemonState {
         );
         let dest = self.baselines_dir.join(filename);
         if let Some(dir) = dest.parent() {
-            let _ = fs::create_dir_all(dir);
+            if let Err(e) = fs::create_dir_all(dir) {
+                self.audit.lock().unwrap().log(
+                    "security",
+                    None,
+                    &format!("baseline_dir_create_failed: {}", e),
+                    None,
+                );
+                return false;
+            }
         }
-        let ok = fs::write(&dest, data).is_ok();
+        // (Entfernt: doppelter Schreibvorgang)
+        // Schreibe Datei mit restriktiven Berechtigungen (nur Owner darf lesen/schreiben)
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = match fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&dest)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                self.audit.lock().unwrap().log(
+                    "security",
+                    None,
+                    &format!("baseline_file_create_failed: {}", e),
+                    None,
+                );
+                return false;
+            }
+        };
+        let ok = file.write_all(&data).is_ok();
         self.audit.lock().unwrap().log(
             "persistent_allow",
             None,
@@ -203,7 +276,7 @@ impl DaemonState {
             return false;
         }
 
-        // Generate usbguard rules from baseline and apply atomically, then reload
+        // Generate usbguard rules from baseline and apply atomically, dann reload
         let rules = generate_rules_from_baseline(&baseline);
         if let Err(e) = UsbguardBackend::apply_rules_atomically(&rules) {
             tracing::error!(error=?e, "failed to apply usbguard rules atomically");
@@ -213,6 +286,18 @@ impl DaemonState {
     }
 
     async fn revoke_device(&self, device_id: &str) -> bool {
+        let valid_id = !device_id.is_empty()
+            && device_id.len() <= 64
+            && device_id.chars().all(|c| c.is_ascii());
+        if !valid_id {
+            self.audit.lock().unwrap().log(
+                "revoke_reject",
+                Some(device_id.to_string()),
+                "invalid_input",
+                None,
+            );
+            return false;
+        }
         let ok = self.backend.revoke(device_id).await;
         self.audit.lock().unwrap().log(
             "revoke",

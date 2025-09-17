@@ -1,3 +1,6 @@
+[lib]
+name = "guardianusb_tray"
+path = "src/lib.rs"
 [package]
 name = "guardianusb-tray"
 version = "0.1.0"

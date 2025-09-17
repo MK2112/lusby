@@ -1,3 +1,6 @@
+[lib]
+name = "guardianusb_daemon"
+path = "src/lib.rs"
 [package]
 name = "guardianusb-daemon"
 version = "0.1.0"
@@ -11,6 +14,7 @@ default = []
 udev-monitor = ["dep:udev"]
 
 [dependencies]
+guardianusb-backend-mock = { path = "../backend-mock" }
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "time"] }

@@ -13,7 +13,22 @@ pub struct AuditLogger {
 impl AuditLogger {
     pub fn new(path: PathBuf) -> std::io::Result<Self> {
         if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
+            // Audit-Log-Verzeichnis mit restriktiven Berechtigungen anlegen
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                let mut builder = fs::DirBuilder::new();
+                builder.mode(0o700);
+                match builder.create(dir) {
+                    Ok(_) => (),
+                    Err(ref e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
+                    Err(e) => return Err(e),
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                fs::create_dir_all(dir)?;
+            }
         }
         Ok(Self {
             path,
