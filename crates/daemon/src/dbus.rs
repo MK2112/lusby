@@ -111,7 +111,7 @@ impl DaemonState {
 #[interface(name = "org.guardianusb.Daemon")]
 impl DaemonState {
     async fn get_policy_status(&self) -> PolicyStatus {
-        let deny = self.inner.lock().unwrap().deny_unknown;
+        let deny: bool = self.inner.lock().unwrap().deny_unknown;
         PolicyStatus { deny_unknown: deny }
     }
 
@@ -121,11 +121,11 @@ impl DaemonState {
 
     async fn request_ephemeral_allow(&self, device_id: &str, ttl: u32, requester_uid: u32) -> bool {
         // Eingabevalidierung
-        let valid_id = !device_id.is_empty()
+        let valid_id: bool = !device_id.is_empty()
             && device_id.len() <= 64
-            && device_id.chars().all(|c| c.is_ascii());
-        let valid_ttl = ttl >= 1 && ttl <= 86400;
-        let valid_uid = requester_uid > 0;
+            && device_id.is_ascii();
+        let valid_ttl: bool = (1..=86400).contains(&ttl);
+        let valid_uid: bool = requester_uid > 0;
         if !valid_id || !valid_ttl || !valid_uid {
             self.audit.lock().unwrap().log(
                 "ephemeral_allow_reject",
@@ -135,7 +135,7 @@ impl DaemonState {
             );
             return false;
         }
-        let ok = self.backend.allow_ephemeral(device_id, ttl).await;
+        let ok: bool = self.backend.allow_ephemeral(device_id, ttl).await;
         self.audit.lock().unwrap().log(
             "ephemeral_allow",
             Some(device_id.to_string()),
@@ -143,7 +143,7 @@ impl DaemonState {
             Some(requester_uid),
         );
         if ok {
-            let expiry = Instant::now() + Duration::from_secs(ttl as u64);
+            let expiry: Instant = Instant::now() + Duration::from_secs(ttl as u64);
             self.inner
                 .lock()
                 .unwrap()
@@ -288,7 +288,7 @@ impl DaemonState {
     async fn revoke_device(&self, device_id: &str) -> bool {
         let valid_id = !device_id.is_empty()
             && device_id.len() <= 64
-            && device_id.chars().all(|c| c.is_ascii());
+            && device_id.is_ascii();
         if !valid_id {
             self.audit.lock().unwrap().log(
                 "revoke_reject",
