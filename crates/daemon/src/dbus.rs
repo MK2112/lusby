@@ -121,9 +121,7 @@ impl DaemonState {
 
     async fn request_ephemeral_allow(&self, device_id: &str, ttl: u32, requester_uid: u32) -> bool {
         // Eingabevalidierung
-        let valid_id: bool = !device_id.is_empty()
-            && device_id.len() <= 64
-            && device_id.is_ascii();
+        let valid_id: bool = !device_id.is_empty() && device_id.len() <= 64 && device_id.is_ascii();
         let valid_ttl: bool = (1..=86400).contains(&ttl);
         let valid_uid: bool = requester_uid > 0;
         if !valid_id || !valid_ttl || !valid_uid {
@@ -286,9 +284,7 @@ impl DaemonState {
     }
 
     async fn revoke_device(&self, device_id: &str) -> bool {
-        let valid_id = !device_id.is_empty()
-            && device_id.len() <= 64
-            && device_id.is_ascii();
+        let valid_id = !device_id.is_empty() && device_id.len() <= 64 && device_id.is_ascii();
         if !valid_id {
             self.audit.lock().unwrap().log(
                 "revoke_reject",
