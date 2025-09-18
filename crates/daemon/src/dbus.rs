@@ -28,7 +28,9 @@ pub struct DaemonState {
 }
 
 impl DaemonState {
+    #[allow(dead_code)]
     pub fn ephemeral_count(&self) -> usize {
+        //This is a test-only function
         self.inner.lock().unwrap().ephemeral.len()
     }
     pub async fn revoke_all_ephemeral(&self) {
