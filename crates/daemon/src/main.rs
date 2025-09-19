@@ -1,5 +1,4 @@
 use anyhow::Result;
-use serde::{Deserialize, Serialize};
 use tracing::info;
 
 mod dbus;
@@ -64,9 +63,4 @@ fn setup_logging() {
         .with(filter)
         .with(fmt_layer)
         .init();
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct PolicyStatus {
-    deny_unknown: bool,
 }

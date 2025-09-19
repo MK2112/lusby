@@ -59,7 +59,7 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: Run tests (unit)
-        run: cargo test --no-fail-fast --workspace --exclude guardianusb-tray
+        run: cargo test --no-fail-fast --workspace
 
       - name: Setup D-Bus for integration tests
         run: |
