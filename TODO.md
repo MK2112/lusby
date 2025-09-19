@@ -13,14 +13,13 @@ Goal: Improve day-to-day UX while preserving the project’s security posture (d
 ## Medium-term (higher impact)
 - [ ] Visual baseline editor (optional)
   - TUI (`guardianusbctl tui`) to:
-    - Select a detected device → add to baseline draft
+    - Select a detected device -> add to baseline draft (i.e. copy its fingerprint for permanent allow)
     - Edit serial binding, annotate `comment`
     - Save unsigned baseline JSON
     - Sign/apply with prompts (polkit when applying) [crates/cli + tui library]
 
 - [ ] Tray UI enhancements (opt-in feature)
-  - Inline approval TTL choices (e.g., 1/5/15 minutes)
-  - Show countdown for active ephemeral approvals; manual revoke button [crates/tray]
+  - Show countdown for active ephemeral approvals; add manual revoke button [crates/tray]
 
 - [ ] Audit viewer
   - `guardianusbctl audit view --follow` with pretty-print, filter by device fingerprint, and chain-status indicator [crates/cli]
