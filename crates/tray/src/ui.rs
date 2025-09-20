@@ -75,6 +75,7 @@ pub fn start_indicator(
     let countdown_item = gtk::MenuItem::with_label("Countdown: --");
     {
         let approval_end = approval_end.clone();
+        let countdown_item_clone = countdown_item.clone();
         gtk::glib::timeout_add_local(std::time::Duration::from_secs(1), move || {
             let label = if let Some(end) = *approval_end.lock().unwrap() {
                 let now = std::time::Instant::now();
@@ -83,12 +84,12 @@ pub fn start_indicator(
                     format!("Countdown: {}s", secs)
                 } else {
                     // Auto-revoke
-                    format!("Countdown: expired")
+                    "Countdown: expired".to_string()
                 }
             } else {
                 "Countdown: --".to_string()
             };
-            countdown_item.set_label(&label);
+            countdown_item_clone.set_label(&label);
             Continue(true)
         });
     }
