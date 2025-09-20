@@ -1,6 +1,6 @@
 # guardian-USB
 
-Security framework for handling USB devices on Debian/Ubuntu systems. It enforces a "deny-by-default" policy: unknown USB devices are automatically blocked. Only explicitly approved devices are allowed—temporarily or permanently, cryptographically signed and fully auditable.
+Security framework for handling USB devices on Debian/Ubuntu systems. Enforces a "deny-by-default" policy: unknown USB devices are automatically blocked. Only explicitly approved devices are allowed-temporarily or permanently, cryptographically signed and fully auditable.
 
 ## Main Features
 
@@ -9,7 +9,9 @@ Security framework for handling USB devices on Debian/Ubuntu systems. It enforce
 - Permanent approvals via signed baselines (Ed25519, verified against public keys)
 - Audit log: tamper-evident, hash-chained, verifiable
 - Notifications and quick actions via tray app
+- Tray app shows countdown for temporary approvals and provides a "Revoke now" button
 - CLI for comprehensive management and verification tasks
+- Visual baseline editor (TUI) for easy device selection and baseline creation
 
 ## Components
 
@@ -23,11 +25,13 @@ Security framework for handling USB devices on Debian/Ubuntu systems. It enforce
   - System tray with optional UI
   - Notifications for unknown devices
   - Temporary approvals and revocations via click
+  - Shows countdown for active temporary approvals and provides a "Revoke now" button
 - **guardianusbctl** (CLI):
   - List devices, show status
   - Create, sign, verify, and apply baselines
   - Verify audit log
   - Request/set temporary approvals
+  - **guardianusbctl tui:** Interactive device selection, editing, and baseline creation
 
 ## Installation
 
@@ -48,7 +52,9 @@ The script installs all dependencies, builds the packages, sets up the tray and 
    - Tray: "Approve for 5 minutes"
    - CLI: `guardianusbctl allow --device <device-id> --ttl 300`
 3. **Permanently allow**
-   - Baseline draft: `guardianusbctl baseline init --device <ID> --out baseline_unsigned.json`
+   - Use the visual baseline editor: `guardianusbctl tui`
+     - Select devices, edit serial/comment, save unsigned baseline JSON interactively
+   - Or use CLI: `guardianusbctl baseline init --device <ID> --out baseline_unsigned.json`
    - Generate key: `guardianusbctl baseline keygen`
    - Sign baseline: `guardianusbctl baseline sign --secret-b64 ...`
    - Verify: `guardianusbctl baseline verify --pubkey ... baseline.json`
@@ -73,7 +79,7 @@ The script installs all dependencies, builds the packages, sets up the tray and 
   - Approval is determined by matching against the baseline on the system.
 - **Approval:**
   - Temporary: via tray or CLI, with TTL, automatically revoked
-  - Permanent: create baseline draft → sign with Ed25519 key → verify → apply (PolicyKit authentication required)
+  - Permanent: create baseline draft -> sign with Ed25519 key -> verify -> apply (PolicyKit authentication required)
 
 ## Configuration & Paths
 
@@ -135,3 +141,8 @@ sudo rm -rf /etc/guardianusb /var/lib/guardianusb /var/log/guardianusb/audit.log
   - `/var/log/guardianusb/daemon.log`
   - `/var/log/syslog`
   - Tray errors: `~/.cache/guardianusb-tray.log`
+
+## Roadmap (maybe)
+
+- [ ] Multiple Policy profiles, switch between them
+  - Multiple signed baselines with labels (work, home, travel) and quick switch (polkit-gated) [crates/daemon, CLI]
