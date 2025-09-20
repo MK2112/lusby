@@ -23,21 +23,25 @@ pub fn start_indicator(
 
     let mut menu = gtk::Menu::new();
 
-    // Approve for 5 minutes
+    // Countdown state
+    let approval_end = Arc::new(Mutex::new(None::<std::time::Instant>));
+
+    // Approve for N minutes (starts countdown)
     let approve_item = gtk::MenuItem::with_label(&format!(
         "Approve for {} minutes",
         (default_ttl_secs / 60).max(1)
     ));
     {
         let last_seen = last_seen.clone();
+        let approval_end = approval_end.clone();
         let ttl = default_ttl_secs;
         approve_item.connect_activate(move |_| {
             if let Some(dev) = last_seen.lock().unwrap().clone() {
-                // Fire-and-forget D-Bus call
                 let device_id = dev.id.clone();
                 let uid = unsafe { geteuid() } as u32;
                 let ttl: u32 = ttl;
-                // Spawn a lightweight thread to avoid blocking UI
+                let end = std::time::Instant::now() + std::time::Duration::from_secs(ttl as u64);
+                *approval_end.lock().unwrap() = Some(end);
                 std::thread::spawn(move || {
                     let rt = tokio::runtime::Runtime::new().unwrap();
                     rt.block_on(async move {
@@ -65,6 +69,72 @@ pub fn start_indicator(
         });
     }
     menu.append(&approve_item);
+
+    // Countdown display
+    let countdown_item = gtk::MenuItem::with_label("Countdown: --");
+    {
+        let approval_end = approval_end.clone();
+        // Timer thread to update countdown every second
+        std::thread::spawn(move || {
+            loop {
+                gtk::glib::idle_add_local(move || {
+                    let label = if let Some(end) = *approval_end.lock().unwrap() {
+                        let now = std::time::Instant::now();
+                        if now < end {
+                            let secs = (end - now).as_secs();
+                            format!("Countdown: {}s", secs)
+                        } else {
+                            // Auto-revoke
+                            format!("Countdown: expired")
+                        }
+                    } else {
+                        "Countdown: --".to_string()
+                    };
+                    countdown_item.set_label(&label);
+                    gtk::Continue(true)
+                });
+                std::thread::sleep(std::time::Duration::from_secs(1));
+            }
+        });
+    }
+    menu.append(&countdown_item);
+
+    // Manual revoke button
+    let revoke_now_item = gtk::MenuItem::with_label("Revoke now");
+    {
+        let last_seen = last_seen.clone();
+        let approval_end = approval_end.clone();
+        revoke_now_item.connect_activate(move |_| {
+            if let Some(dev) = last_seen.lock().unwrap().clone() {
+                let device_id = dev.id.clone();
+                *approval_end.lock().unwrap() = None;
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+                    rt.block_on(async move {
+                        if let Ok(conn) = zbus::Connection::system().await {
+                            if let Ok(proxy) = zbus::Proxy::new(
+                                &conn,
+                                "org.guardianusb.Daemon",
+                                "/org/guardianusb/Daemon",
+                                "org.guardianusb.Daemon",
+                            )
+                            .await
+                            {
+                                let _: bool = proxy
+                                    .call_method("revoke_device", &(device_id))
+                                    .await
+                                    .expect("D-Bus call failed")
+                                    .body()
+                                    .deserialize()
+                                    .expect("Failed to deserialize response");
+                            }
+                        }
+                    });
+                });
+            }
+        });
+    }
+    menu.append(&revoke_now_item);
 
     // Revoke last device
     let revoke_item = gtk::MenuItem::with_label("Revoke last device");

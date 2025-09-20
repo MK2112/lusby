@@ -14,6 +14,8 @@ pub enum Commands {
     Status,
     Allow(AllowArgs),
     Revoke { device: String },
+    /// Launch visual baseline editor (TUI)
+    Tui,
 }
 
 #[derive(Args, Clone)]

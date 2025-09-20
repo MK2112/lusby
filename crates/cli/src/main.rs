@@ -11,6 +11,8 @@ use std::fs;
 use std::path::PathBuf;
 use zbus::Connection;
 
+mod tui;
+
 #[derive(Parser)]
 #[command(name = "guardianusbctl", version, about = "GuardianUSB CLI")]
 struct Cli {
@@ -45,6 +47,8 @@ enum Commands {
     Allow(AllowArgs),
     /// Revoke a device immediately
     Revoke { device: String },
+    /// Launch TUI for baseline editing
+    Tui,
 }
 
 #[derive(Subcommand)]
@@ -300,6 +304,19 @@ async fn main() -> Result<()> {
             } else {
                 eprintln!("FAIL");
                 std::process::exit(1);
+            }
+        }
+        Commands::Tui => {
+            let devices: Vec<DeviceInfo> = proxy.call("list_devices", &()).await?;
+            match tui::run_baseline_editor(devices) {
+                Ok(Some(baseline)) => {
+                    let path = format!("baseline_{}.json", chrono::Utc::now().format("%Y%m%dT%H%M%S"));
+                    fs::write(&path, serde_json::to_string_pretty(&baseline)?)?;
+                    println!("Baseline draft saved: {}", path);
+                    println!("You can now sign/apply this baseline using guardianusbctl baseline sign/apply.");
+                }
+                Ok(None) => println!("TUI cancelled."),
+                Err(e) => eprintln!("TUI error: {}", e),
             }
         }
     }
