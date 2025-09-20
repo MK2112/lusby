@@ -1,4 +1,5 @@
 use anyhow::Result;
+use glib::Continue;
 #[cfg(feature = "tray-ui")]
 use gtk::prelude::*;
 use guardianusb_common::types::DeviceInfo;
@@ -74,27 +75,21 @@ pub fn start_indicator(
     let countdown_item = gtk::MenuItem::with_label("Countdown: --");
     {
         let approval_end = approval_end.clone();
-        // Timer thread to update countdown every second
-        std::thread::spawn(move || {
-            loop {
-                gtk::glib::idle_add_local(move || {
-                    let label = if let Some(end) = *approval_end.lock().unwrap() {
-                        let now = std::time::Instant::now();
-                        if now < end {
-                            let secs = (end - now).as_secs();
-                            format!("Countdown: {}s", secs)
-                        } else {
-                            // Auto-revoke
-                            format!("Countdown: expired")
-                        }
-                    } else {
-                        "Countdown: --".to_string()
-                    };
-                    countdown_item.set_label(&label);
-                    gtk::Continue(true)
-                });
-                std::thread::sleep(std::time::Duration::from_secs(1));
-            }
+        gtk::glib::timeout_add_local(std::time::Duration::from_secs(1), move || {
+            let label = if let Some(end) = *approval_end.lock().unwrap() {
+                let now = std::time::Instant::now();
+                if now < end {
+                    let secs = (end - now).as_secs();
+                    format!("Countdown: {}s", secs)
+                } else {
+                    // Auto-revoke
+                    format!("Countdown: expired")
+                }
+            } else {
+                "Countdown: --".to_string()
+            };
+            countdown_item.set_label(&label);
+            Continue(true)
         });
     }
     menu.append(&countdown_item);

@@ -10,10 +10,14 @@ pub struct Cli {
 #[derive(Subcommand, Clone)]
 pub enum Commands {
     List,
-    Info { device: String },
+    Info {
+        device: String,
+    },
     Status,
     Allow(AllowArgs),
-    Revoke { device: String },
+    Revoke {
+        device: String,
+    },
     /// Launch visual baseline editor (TUI)
     Tui,
 }

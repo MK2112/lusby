@@ -310,7 +310,10 @@ async fn main() -> Result<()> {
             let devices: Vec<DeviceInfo> = proxy.call("list_devices", &()).await?;
             match tui::run_baseline_editor(devices) {
                 Ok(Some(baseline)) => {
-                    let path = format!("baseline_{}.json", chrono::Utc::now().format("%Y%m%dT%H%M%S"));
+                    let path: String = format!(
+                        "baseline_{}.json",
+                        chrono::Utc::now().format("%Y%m%dT%H%M%S")
+                    );
                     fs::write(&path, serde_json::to_string_pretty(&baseline)?)?;
                     println!("Baseline draft saved: {}", path);
                     println!("You can now sign/apply this baseline using guardianusbctl baseline sign/apply.");

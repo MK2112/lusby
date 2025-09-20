@@ -1,6 +1,6 @@
+use chrono::Utc;
 use guardianusb_common::baseline::{Baseline, DeviceEntry};
 use guardianusb_common::types::DeviceInfo;
-use chrono::Utc;
 
 fn make_device(vendor_id: &str, product_id: &str, serial: &str, device_type: &str) -> DeviceInfo {
     DeviceInfo {
@@ -31,7 +31,14 @@ fn test_add_remove_device_to_baseline() {
     });
     assert_eq!(baseline_devices.len(), 1);
     // Remove device
-    let idx = baseline_devices.iter().position(|d| d.vendor_id == info.vendor_id && d.product_id == info.product_id && d.serial.as_deref() == Some(&info.serial)).unwrap();
+    let idx = baseline_devices
+        .iter()
+        .position(|d| {
+            d.vendor_id == info.vendor_id
+                && d.product_id == info.product_id
+                && d.serial.as_deref() == Some(&info.serial)
+        })
+        .unwrap();
     baseline_devices.remove(idx);
     assert!(baseline_devices.is_empty());
 }
@@ -82,28 +89,35 @@ fn test_baseline_serialization_roundtrip() {
 fn test_add_multiple_devices_and_comments() {
     let info1 = make_device("abcd", "1234", "SERIAL1", "usb");
     let info2 = make_device("efgh", "5678", "SERIAL2", "usb");
-    let mut baseline_devices: Vec<DeviceEntry> = Vec::new();
-    baseline_devices.push(DeviceEntry {
-        vendor_id: info1.vendor_id.clone(),
-        product_id: info1.product_id.clone(),
-        serial: Some(info1.serial.clone()),
-        bus_path: None,
-        descriptors_hash: String::new(),
-        device_type: info1.device_type.clone(),
-        comment: Some("Erstes Gerät".to_string()),
-    });
-    baseline_devices.push(DeviceEntry {
-        vendor_id: info2.vendor_id.clone(),
-        product_id: info2.product_id.clone(),
-        serial: Some(info2.serial.clone()),
-        bus_path: None,
-        descriptors_hash: String::new(),
-        device_type: info2.device_type.clone(),
-        comment: Some("Zweites Gerät".to_string()),
-    });
+    let baseline_devices: Vec<DeviceEntry> = vec![
+        DeviceEntry {
+            vendor_id: info1.vendor_id.clone(),
+            product_id: info1.product_id.clone(),
+            serial: Some(info1.serial.clone()),
+            bus_path: None,
+            descriptors_hash: String::new(),
+            device_type: info1.device_type.clone(),
+            comment: Some("Erstes Gerät".to_string()),
+        },
+        DeviceEntry {
+            vendor_id: info2.vendor_id.clone(),
+            product_id: info2.product_id.clone(),
+            serial: Some(info2.serial.clone()),
+            bus_path: None,
+            descriptors_hash: String::new(),
+            device_type: info2.device_type.clone(),
+            comment: Some("Zweites Gerät".to_string()),
+        },
+    ];
     assert_eq!(baseline_devices.len(), 2);
-    assert_eq!(baseline_devices[0].comment, Some("Erstes Gerät".to_string()));
-    assert_eq!(baseline_devices[1].comment, Some("Zweites Gerät".to_string()));
+    assert_eq!(
+        baseline_devices[0].comment,
+        Some("Erstes Gerät".to_string())
+    );
+    assert_eq!(
+        baseline_devices[1].comment,
+        Some("Zweites Gerät".to_string())
+    );
 }
 
 #[test]

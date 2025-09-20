@@ -1,11 +1,11 @@
-use tui::{backend::CrosstermBackend, Terminal};
-use tui::widgets::{Block, Borders, List, ListItem, Paragraph};
-use tui::layout::{Layout, Constraint, Direction};
 use crossterm::event::{self, Event, KeyCode};
-use crossterm::terminal::{enable_raw_mode, disable_raw_mode};
-use std::io::{self, Stdout};
-use guardianusb_common::types::DeviceInfo;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use guardianusb_common::baseline::{Baseline, DeviceEntry};
+use guardianusb_common::types::DeviceInfo;
+use std::io::{self, Stdout};
+use tui::layout::{Constraint, Direction, Layout};
+use tui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use tui::{backend::CrosstermBackend, Terminal};
 
 pub fn run_baseline_editor(devices: Vec<DeviceInfo>) -> io::Result<Option<Baseline>> {
     enable_raw_mode()?;
@@ -24,25 +24,48 @@ pub fn run_baseline_editor(devices: Vec<DeviceInfo>) -> io::Result<Option<Baseli
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .margin(2)
-                .constraints([
-                    Constraint::Length(3),
-                    Constraint::Min(5),
-                    Constraint::Length(3),
-                ].as_ref())
+                .constraints(
+                    [
+                        Constraint::Length(3),
+                        Constraint::Min(5),
+                        Constraint::Length(3),
+                    ]
+                    .as_ref(),
+                )
                 .split(f.size());
 
-            let title = Paragraph::new("GuardianUSB Baseline Editor (TUI)").block(Block::default().borders(Borders::ALL));
+            let title = Paragraph::new("GuardianUSB Baseline Editor (TUI)")
+                .block(Block::default().borders(Borders::ALL));
             f.render_widget(title, chunks[0]);
 
-            let items: Vec<ListItem> = devices.iter().enumerate().map(|(i, d)| {
-                let mut line = format!("{}: {} {} {} {}", i+1, d.vendor_id, d.product_id, d.serial, d.device_type);
-                if baseline_devices.iter().any(|bd| bd.vendor_id == d.vendor_id && bd.product_id == d.product_id && bd.serial.as_deref() == Some(&d.serial)) {
-                    line.push_str(" [selected]");
-                }
-                ListItem::new(line)
-            }).collect();
+            let items: Vec<ListItem> = devices
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    let mut line = format!(
+                        "{}: {} {} {} {}",
+                        i + 1,
+                        d.vendor_id,
+                        d.product_id,
+                        d.serial,
+                        d.device_type
+                    );
+                    if baseline_devices.iter().any(|bd| {
+                        bd.vendor_id == d.vendor_id
+                            && bd.product_id == d.product_id
+                            && bd.serial.as_deref() == Some(&d.serial)
+                    }) {
+                        line.push_str(" [selected]");
+                    }
+                    ListItem::new(line)
+                })
+                .collect();
             let list = List::new(items)
-                .block(Block::default().title("Detected Devices (Up/Down, Enter to add/remove)").borders(Borders::ALL))
+                .block(
+                    Block::default()
+                        .title("Detected Devices (Up/Down, Enter to add/remove)")
+                        .borders(Borders::ALL),
+                )
                 .highlight_symbol("> ");
             f.render_stateful_widget(list, chunks[1], &mut list_state);
 
