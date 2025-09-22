@@ -1,0 +1,43 @@
+# COMMERCIAL LICENSE
+
+**guardian-USB - Commercial Licensing & Enterprise Edition**
+*(c) 2025 MK2112 [mk2112@protonmail.com](mailto:mk2112@protonmail.com)*
+
+GuardianUSB is distributed in two editions:
+* **Community Edition** - Open-source, licensed under the GNU Affero General Public License v3 (AGPL-3.0). This edition includes the guardianusb-daemon, CLI tools, a tray app and additional features as published on the public repository.
+* **Enterprise Edition** - Commercially licensed version of guardian-USB with additional functionality and support.
+
+## Enterprise Edition
+
+The **Enterprise Edition** is available under a separate commercial license agreement. This license is intended for organizations:
+* Requiring functionality beyond the Community Edition (e.g., centralized policy management, multi-device deployments, reporting dashboards, or remote administration).
+* Wishing to integrate GuardianUSB into proprietary systems or products without the obligations of the AGPL.
+
+## Licensing Options
+
+1. **Community Edition (AGPLv3)**
+   * Free
+   * Obligations: Any modifications and derivative works must also be released under AGPLv3 if distributed or made available to others.
+
+2. **Enterprise Edition (Commercial License)**
+   * Paid license, terms negotiated per organization.
+   * Grants rights to:
+     * Use guardian-USB internally without AGPLv3 obligations
+     * Integrate into proprietary or closed-source products
+     * Deploy enterprise features not present in the Community Edition
+
+## Getting a Commercial License
+
+To obtain a commercial license or Enterprise Edition subscription, please contact:
+**[mk2112@protonmail.com](mailto:mk2112@protonmail.com)**
+
+Please include in your inquiry:
+* Your organization name
+* Intended use case (e.g., enterprise deployment, integration, resale)
+* Scale of deployment (number of endpoints / devices)
+
+## Important Notes
+
+* The **Community Edition remains AGPLv3**. Nothing in this notice alters or restricts your rights for that edition under that license.
+* The **Enterprise Edition** features are not part of the **Community Edition** and are therefore not available under AGPL. Instead, the **Enterprise Edition** may include access to source code under negotiated commercial license terms.
+* Pricing and terms are tailored to organizational requirements and scale.
