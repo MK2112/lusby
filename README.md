@@ -142,7 +142,13 @@ sudo rm -rf /etc/guardianusb /var/lib/guardianusb /var/log/guardianusb/audit.log
   - `/var/log/syslog`
   - Tray errors: `~/.cache/guardianusb-tray.log`
 
-## Roadmap (maybe)
+## Roadmap
 
 - [ ] Multiple Policy profiles, switch between them
   - Multiple signed baselines with labels (work, home, travel) and quick switch (polkit-gated) [crates/daemon, CLI]
+- [ ] Close off the functionality scope for the standard edition
+- [ ] Make an enterprise edition. I think this should contain:
+  - Centralizable policy management with multi-device support,
+  - Remote admin,
+  - Reporting dashboards
+  - ...
