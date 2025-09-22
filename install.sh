@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ####
-# guardian-USB Installer Script
+# Lusby Installer Script
 #
-# Installs guardian-USB daemon and its dependencies on a Debian-based system.
+# Installs Lusby daemon and its dependencies on a Debian-based system.
 ####
 
 if [ "$EUID" -ne 0 ]; then
@@ -36,7 +36,7 @@ else
   log "Rust already installed."
 fi
 
-log "Building guardian-USB packages..."
+log "Building Lusby packages..."
 cargo install cargo-deb --locked || true
 
 # Build main workspace
@@ -46,56 +46,56 @@ cargo build --release --workspace
 log "Building tray application..."
 cd crates/tray
 cargo build --release --features tray-ui
-sudo cp target/release/guardianusb-tray /usr/local/bin/
+sudo cp target/release/lusby-tray /usr/local/bin/
 
 # Create autostart entry for the tray application
 log "Setting up tray application autostart..."
 mkdir -p ~/.config/autostart
-cat > ~/.config/autostart/guardianusb-tray.desktop <<EOL
+cat > ~/.config/autostart/lusby-tray.desktop <<EOL
 [Desktop Entry]
 Type=Application
-Name=GuardianUSB Tray
-Exec=/usr/local/bin/guardianusb-tray
+Name=Lusby Tray
+Exec=/usr/local/bin/lusby-tray
 Icon=security-high
 Categories=System;Utility;
 StartupNotify=false
 Terminal=false
-Comment=USB device management tray for guardian-USB
+Comment=USB device management tray for Lusby
 EOL
 
 # Build the daemon package
 cd ../daemon
 cargo deb --no-build --no-strip
 
-log "Installing guardian-USB daemon package..."
-sudo dpkg -i target/debian/guardianusb-daemon_*.deb
+log "Installing Lusby daemon package..."
+sudo dpkg -i target/debian/lusby-daemon_*.deb
 cd ../../
 
 # Set correct permissions for the tray binary
-sudo chmod 755 /usr/local/bin/guardianusb-tray
+sudo chmod 755 /usr/local/bin/lusby-tray
 
-# guardian-USB requires some directories to be created
-log "Creating guardian-USB directories..."
-sudo mkdir -p /etc/guardian-USB/{baselines,trusted_pubkeys} \
-             /var/lib/guardian-USB \
-             /var/log/guardian-USB
+# Lusby requires some directories to be created
+log "Creating Lusby directories..."
+sudo mkdir -p /etc/lusby/{baselines,trusted_pubkeys} \
+             /var/lib/lusby \
+             /var/log/lusby
 
-sudo chown -R root:root /etc/guardian-USB /var/lib/guardian-USB /var/log/guardian-USB
-sudo chmod 700 /etc/guardian-USB /var/lib/guardian-USB
-sudo chmod 600 /etc/guardian-USB/config.toml
+sudo chown -R root:root /etc/lusby /var/lib/lusby /var/log/lusby
+sudo chmod 700 /etc/lusby /var/lib/lusby
+sudo chmod 600 /etc/lusby/config.toml
 
-sudo touch /var/log/guardian-USB/audit.log
-sudo chmod 600 /var/log/guardian-USB/audit.log
+sudo touch /var/log/lusby/audit.log
+sudo chmod 600 /var/log/lusby/audit.log
 
 log "Enabling usbguard service..."
 sudo systemctl enable --now usbguard
 
 log "Loading AppArmor profile..."
-sudo apparmor_parser -r -W /etc/apparmor.d/usr.sbin.guardian-USB-daemon
-sudo aa-enforce /etc/apparmor.d/usr.sbin.guardian-USB-daemon
+sudo apparmor_parser -r -W /etc/apparmor.d/usr.sbin.lusby-daemon
+sudo aa-enforce /etc/apparmor.d/usr.sbin.lusby-daemon
 
-log "Enabling guardian-USB daemon..."
-sudo systemctl enable --now guardian-USB-daemon
+log "Enabling Lusby daemon..."
+sudo systemctl enable --now lusby-daemon
 
 ####
 #
@@ -109,22 +109,22 @@ else
   warn "usbguard not enabled/active. Run: sudo systemctl enable --now usbguard"
 fi
 
-if systemctl is-enabled guardianusb-daemon >/dev/null 2>&1 && systemctl is-active guardianusb-daemon >/dev/null 2>&1; then
-  ok "guardianusb-daemon enabled and active"
+if systemctl is-enabled lusby-daemon >/dev/null 2>&1 && systemctl is-active lusby-daemon >/dev/null 2>&1; then
+  ok "lusby-daemon enabled and active"
 else
-  warn "guardianusb-daemon not enabled/active. Run: sudo systemctl enable --now guardianusb-daemon"
+  warn "lusby-daemon not enabled/active. Run: sudo systemctl enable --now lusby-daemon"
 fi
 
-if [[ -f /usr/share/polkit-1/actions/org.guardianusb.manage.policy ]]; then
+if [[ -f /usr/share/polkit-1/actions/org.lusby.manage.policy ]]; then
   ok "polkit action present"
 else
-  warn "polkit action missing: /usr/share/polkit-1/actions/org.guardianusb.manage.policy"
+  warn "polkit action missing: /usr/share/polkit-1/actions/org.lusby.manage.policy"
 fi
 
-if [[ -f /etc/apparmor.d/usr.sbin.guardianusb-daemon ]]; then
+if [[ -f /etc/apparmor.d/usr.sbin.lusby-daemon ]]; then
   ok "AppArmor profile present"
 else
-  warn "AppArmor profile missing: /etc/apparmor.d/usr.sbin.guardianusb-daemon"
+  warn "AppArmor profile missing: /etc/apparmor.d/usr.sbin.lusby-daemon"
 fi
 
 check_dir() {
@@ -149,29 +149,29 @@ check_file() {
   fi
 }
 
-check_dir /etc/guardianusb 700
-check_file /etc/guardianusb/config.toml 600
-check_dir /etc/guardianusb/baselines 700
-check_dir /etc/guardianusb/trusted_pubkeys 700
-check_dir /var/lib/guardianusb 700
-check_file /var/log/guardianusb/audit.log 600
+check_dir /etc/lusby 700
+check_file /etc/lusby/config.toml 600
+check_dir /etc/lusby/baselines 700
+check_dir /etc/lusby/trusted_pubkeys 700
+check_dir /var/lib/lusby 700
+check_file /var/log/lusby/audit.log 600
 
-if busctl --system --no-pager --no-legend list | awk '{print $1}' | grep -q '^org.guardianusb.Daemon$'; then
-  ok "D-Bus name org.guardianusb.Daemon owned"
+if busctl --system --no-pager --no-legend list | awk '{print $1}' | grep -q '^org.lusby.Daemon$'; then
+  ok "D-Bus name org.lusby.Daemon owned"
 else
-  warn "D-Bus name org.guardianusb.Daemon not owned. Is the daemon running?"
+  warn "D-Bus name org.lusby.Daemon not owned. Is the daemon running?"
 fi
 
 # Brief API call test
-if busctl --system call org.guardianusb.Daemon /org/guardianusb/Daemon org.guardianusb.Daemon get_policy_status >/dev/null 2>&1; then
+if busctl --system call org.lusby.Daemon /org/lusby/Daemon org.lusby.Daemon get_policy_status >/dev/null 2>&1; then
   ok "D-Bus get_policy_status ok"
 else
   warn "D-Bus call failed: get_policy_status"
 fi
 
 log "Installation complete!"
-echo "Check status with: systemctl status guardian-USB-daemon"
-echo "Follow logs with: journalctl -u guardian-USB-daemon -f"
+echo "Check status with: systemctl status lusby-daemon"
+echo "Follow logs with: journalctl -u lusby-daemon -f"
 echo "Refer to the documentation for further setup instructions."
 
 exit 0
