@@ -1,17 +1,17 @@
 # COMMERCIAL LICENSE
 
-**guardian-USB - Commercial Licensing & Enterprise Edition**
+**Lusby - Commercial Licensing & Enterprise Edition**
 *(c) 2025 MK2112 [mk2112@protonmail.com](mailto:mk2112@protonmail.com)*
 
-GuardianUSB is distributed in two editions:
-* **Community Edition** - Open-source, licensed under the GNU Affero General Public License v3 (AGPL-3.0). This edition includes the guardianusb-daemon, CLI tools, a tray app and additional features as published on the public repository.
-* **Enterprise Edition** - Commercially licensed version of guardian-USB with additional functionality and support.
+Lusby is distributed in two editions:
+* **Community Edition** - Open-source, licensed under the GNU Affero General Public License v3 (AGPL-3.0). This edition includes the lusby-daemon, CLI tools, a tray app and additional features as published on the public repository.
+* **Enterprise Edition** - Commercially licensed version of Lusby with additional functionality and support.
 
 ## Enterprise Edition
 
 The **Enterprise Edition** is available under a separate commercial license agreement. This license is intended for organizations:
 * Requiring functionality beyond the Community Edition (e.g., centralized policy management, multi-device deployments, reporting dashboards, or remote administration).
-* Wishing to integrate GuardianUSB into proprietary systems or products without the obligations of the AGPL.
+* Wishing to integrate Lusby into proprietary systems or products without the obligations of the AGPL.
 
 ## Licensing Options
 
@@ -22,7 +22,7 @@ The **Enterprise Edition** is available under a separate commercial license agre
 2. **Enterprise Edition (Commercial License)**
    * Paid license, terms negotiated per organization.
    * Grants rights to:
-     * Use guardian-USB internally without AGPLv3 obligations
+     * Use Lusby internally without AGPLv3 obligations
      * Integrate into proprietary or closed-source products
      * Deploy enterprise features not present in the Community Edition
 
