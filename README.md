@@ -147,7 +147,7 @@ sudo rm -rf /etc/guardianusb /var/lib/guardianusb /var/log/guardianusb/audit.log
 - [ ] Multiple Policy profiles, switch between them
   - Multiple signed baselines with labels (work, home, travel) and quick switch (polkit-gated) [crates/daemon, CLI]
 - [ ] Close off the functionality scope for the standard edition
-- [ ] Make an enterprise edition. I think this should contain:
+- [ ] Make an enterprise edition. Should contain:
   - Centralizable policy management with multi-device support,
   - Remote admin,
   - Reporting dashboards
