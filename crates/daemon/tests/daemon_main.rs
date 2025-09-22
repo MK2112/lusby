@@ -1,13 +1,13 @@
 use anyhow::Result;
-use guardianusb_backend_mock::MockBackend;
-use guardianusb_daemon::DaemonState;
+use lusby_backend_mock::MockBackend;
+use lusby_daemon::DaemonState;
 
 #[test]
 fn daemonstate_initialization() {
     let backend = MockBackend::default();
     let state = DaemonState::new_with_audit_path(
         backend,
-        std::path::PathBuf::from("/tmp/guardianusb-test-audit.log"),
+        std::path::PathBuf::from("/tmp/lusby-test-audit.log"),
     );
     assert_eq!(state.ephemeral_count(), 0);
 }

@@ -3,9 +3,9 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use chrono::Utc;
 use clap::{Args, Parser, Subcommand};
 use ed25519_dalek::{SigningKey, VerifyingKey};
-use guardianusb_common::audit::{verify_chain, AuditEntry};
-use guardianusb_common::baseline::{Baseline, DeviceEntry};
-use guardianusb_common::types::DeviceInfo;
+use lusby_common::audit::{verify_chain, AuditEntry};
+use lusby_common::baseline::{Baseline, DeviceEntry};
+use lusby_common::types::DeviceInfo;
 use rand::rngs::OsRng;
 use std::fs;
 use std::path::PathBuf;
@@ -14,7 +14,7 @@ use zbus::Connection;
 mod tui;
 
 #[derive(Parser)]
-#[command(name = "guardianusbctl", version, about = "GuardianUSB CLI")]
+#[command(name = "lusbyctl", version, about = "Lusby CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -124,9 +124,9 @@ async fn main() -> Result<()> {
     let conn = Connection::system().await?;
     let proxy = zbus::Proxy::new(
         &conn,
-        "org.guardianusb.Daemon",
-        "/org/guardianusb/Daemon",
-        "org.guardianusb.Daemon",
+        "org.lusby.Daemon",
+        "/org/lusby/Daemon",
+        "org.lusby.Daemon",
     )
     .await?;
     match cli.command {
@@ -139,7 +139,7 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&info)?);
         }
         Commands::Status => {
-            let status: guardianusb_common::types::PolicyStatus =
+            let status: lusby_common::types::PolicyStatus =
                 proxy.call("get_policy_status", &()).await?;
             println!("{}", serde_json::to_string_pretty(&status)?);
         }
@@ -316,7 +316,9 @@ async fn main() -> Result<()> {
                     );
                     fs::write(&path, serde_json::to_string_pretty(&baseline)?)?;
                     println!("Baseline draft saved: {}", path);
-                    println!("You can now sign/apply this baseline using guardianusbctl baseline sign/apply.");
+                    println!(
+                        "You can now sign/apply this baseline using lusbyctl baseline sign/apply."
+                    );
                 }
                 Ok(None) => println!("TUI cancelled."),
                 Err(e) => eprintln!("TUI error: {}", e),

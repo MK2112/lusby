@@ -1,10 +1,10 @@
 [Unit]
-Description=GuardianUSB Daemon
+Description=Lusby Daemon
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/guardianusb-daemon
+ExecStart=/usr/sbin/lusby-daemon
 Restart=on-failure
 RestartSec=2
 

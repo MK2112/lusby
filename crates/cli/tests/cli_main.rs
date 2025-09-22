@@ -1,9 +1,9 @@
 use clap::{CommandFactory, Parser};
-use guardianusbctl::{Cli, Commands};
+use lusbyctl::{Cli, Commands};
 
 #[test]
 fn test_cli_parsing_list() {
-    let cli = Cli::parse_from(["guardianusbctl", "list"]);
+    let cli = Cli::parse_from(["lusbyctl", "list"]);
     match cli.command {
         Commands::List => {}
         _ => panic!("List command not parsed correctly"),
@@ -12,7 +12,7 @@ fn test_cli_parsing_list() {
 
 #[test]
 fn test_cli_parsing_status() {
-    let cli = Cli::parse_from(["guardianusbctl", "status"]);
+    let cli = Cli::parse_from(["lusbyctl", "status"]);
     match cli.command {
         Commands::Status => {}
         _ => panic!("Status command not parsed correctly"),

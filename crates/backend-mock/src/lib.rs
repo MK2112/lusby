@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use guardianusb_common::backend::UsbBackend;
-use guardianusb_common::types::DeviceInfo;
+use lusby_common::backend::UsbBackend;
+use lusby_common::types::DeviceInfo;
 
 #[derive(Clone, Default)]
 pub struct MockBackend {

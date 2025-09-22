@@ -10,10 +10,10 @@ use ed25519_dalek::VerifyingKey;
 use zbus::message::Header;
 use zbus::{interface, Connection, SignalContext};
 
-use guardianusb_backend_usbguard::UsbguardBackend;
-use guardianusb_common::backend::UsbBackend;
-use guardianusb_common::baseline::Baseline;
-use guardianusb_common::types::{DeviceInfo, PolicyStatus};
+use lusby_backend_usbguard::UsbguardBackend;
+use lusby_common::backend::UsbBackend;
+use lusby_common::baseline::Baseline;
+use lusby_common::types::{DeviceInfo, PolicyStatus};
 
 use crate::audit::AuditLogger;
 use crate::polkit::check_manage_authorization;
@@ -89,7 +89,7 @@ impl DaemonState {
     where
         B: UsbBackend + 'static,
     {
-        Self::new_with_audit_path(backend, PathBuf::from("/var/log/guardianusb/audit.log"))
+        Self::new_with_audit_path(backend, PathBuf::from("/var/log/lusby/audit.log"))
     }
 
     pub fn new_with_audit_path<B>(backend: B, audit_path: PathBuf) -> Self
@@ -104,13 +104,13 @@ impl DaemonState {
             })),
             backend: Arc::new(backend),
             audit: Arc::new(Mutex::new(audit)),
-            baselines_dir: PathBuf::from("/etc/guardianusb/baselines"),
-            trusted_pubkeys_dir: PathBuf::from("/etc/guardianusb/trusted_pubkeys"),
+            baselines_dir: PathBuf::from("/etc/lusby/baselines"),
+            trusted_pubkeys_dir: PathBuf::from("/etc/lusby/trusted_pubkeys"),
         }
     }
 }
 
-#[interface(name = "org.guardianusb.Daemon")]
+#[interface(name = "org.lusby.Daemon")]
 impl DaemonState {
     async fn get_policy_status(&self) -> PolicyStatus {
         let deny: bool = self.inner.lock().unwrap().deny_unknown;

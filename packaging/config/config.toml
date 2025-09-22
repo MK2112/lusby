@@ -1,5 +1,5 @@
-# guardianusb default configuration
-# This file is installed to /etc/guardianusb/config.toml
+# lusby default configuration
+# This file is installed to /etc/lusby/config.toml
 
 [policy]
 # Deny unknown devices by default
@@ -11,7 +11,7 @@ revoke_on_lock = true
 revoke_on_suspend = true
 
 [paths]
-baselines_system = "/etc/guardianusb/baselines"
-trusted_pubkeys = "/etc/guardianusb/trusted_pubkeys"
-audit_log = "/var/log/guardianusb/audit.log"
-state_dir = "/var/lib/guardianusb"
+baselines_system = "/etc/lusby/baselines"
+trusted_pubkeys = "/etc/lusby/trusted_pubkeys"
+audit_log = "/var/log/lusby/audit.log"
+state_dir = "/var/lib/lusby"

@@ -1,8 +1,8 @@
 [lib]
-name = "guardianusb_tray"
+name = "lusby_tray"
 path = "src/lib.rs"
 [package]
-name = "guardianusb-tray"
+name = "lusby-tray"
 version = "0.1.0"
 edition = "2021"
 license = "proprietary"
@@ -15,7 +15,7 @@ tray-ui = ["dep:gtk", "dep:gio", "dep:glib", "dep:libappindicator"]
 anyhow = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
-guardianusb-common = { path = "../common" }
+lusby-common = { path = "../common" }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 gtk = { version = "0.15", optional = true }
 glib = { version = "0.15", optional = true }

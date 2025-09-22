@@ -1,12 +1,12 @@
 use anyhow::Result;
 use futures_util::StreamExt;
-use guardianusb_common::types::DeviceInfo;
 use std::sync::{Arc, Mutex};
 use zbus::Connection;
 #[cfg(feature = "tray-ui")]
 mod ui;
-use guardianusb_common::fingerprint::short_fingerprint;
 use libc::geteuid;
+use lusby_common::fingerprint::short_fingerprint;
+use lusby_common::types::DeviceInfo;
 use notify_rust::Notification;
 use serde::Deserialize;
 
@@ -32,7 +32,7 @@ fn default_ttl() -> u32 {
 }
 
 fn load_config_ttl() -> u32 {
-    let path = "/etc/guardianusb/config.toml";
+    let path = "/etc/lusby/config.toml";
     if let Ok(text) = std::fs::read_to_string(path) {
         if let Ok(cfg) = toml::from_str::<Config>(&text) {
             return cfg.policy.default_ttl_secs;
@@ -43,10 +43,10 @@ fn load_config_ttl() -> u32 {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("guardianusb-tray starting");
+    println!("lusby-tray starting");
     let conn = Connection::system().await?;
-    let path_str = "/org/guardianusb/Daemon";
-    let iface = "org.guardianusb.Daemon";
+    let path_str = "/org/lusby/Daemon";
+    let iface = "org.lusby.Daemon";
     let last_seen: Arc<Mutex<Option<DeviceInfo>>> = Arc::new(Mutex::new(None));
     let default_ttl = load_config_ttl();
 
@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
                                     short_fingerprint(&dev.fingerprint)
                                 };
                                 notif
-                                    .summary("GuardianUSB: Unknown device")
+                                    .summary("Lusby: Unknown device")
                                     .body(&format!(
                                         "{} {}\nserial={} type={}\nfingerprint={}",
                                         dev.vendor_id,
@@ -115,9 +115,9 @@ async fn main() -> Result<()> {
                                                     {
                                                         if let Ok(proxy) = zbus::Proxy::new(
                                                             &conn,
-                                                            "org.guardianusb.Daemon",
-                                                            "/org/guardianusb/Daemon",
-                                                            "org.guardianusb.Daemon",
+                                                            "org.lusby.Daemon",
+                                                            "/org/lusby/Daemon",
+                                                            "org.lusby.Daemon",
                                                         )
                                                         .await
                                                         {
@@ -140,9 +140,9 @@ async fn main() -> Result<()> {
                                                     {
                                                         if let Ok(proxy) = zbus::Proxy::new(
                                                             &conn,
-                                                            "org.guardianusb.Daemon",
-                                                            "/org/guardianusb/Daemon",
-                                                            "org.guardianusb.Daemon",
+                                                            "org.lusby.Daemon",
+                                                            "/org/lusby/Daemon",
+                                                            "org.lusby.Daemon",
                                                         )
                                                         .await
                                                         {

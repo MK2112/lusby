@@ -3,7 +3,7 @@ use zbus::message::Header;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 use zbus::Connection;
 
-// Return true if the sender (from header) is authorized by polkit for org.guardianusb.manage
+// Return true if the sender (from header) is authorized by polkit for org.lusby.manage
 pub async fn check_manage_authorization(
     conn: &Connection,
     header: &Header<'_>,
@@ -30,11 +30,11 @@ pub async fn check_manage_authorization(
     subject_details.insert("uid".to_string(), OwnedValue::from(uid));
     let subject = ("unix-user", subject_details);
 
-    let action_id = "org.guardianusb.manage";
+    let action_id = "org.lusby.manage";
     // details a{sv}
     let details: HashMap<String, OwnedValue> = HashMap::new();
     let flags: u32 = 1; // AllowUserInteraction
-    let cancel: OwnedObjectPath = OwnedObjectPath::try_from("/org/guardianusb/Cancel").unwrap();
+    let cancel: OwnedObjectPath = OwnedObjectPath::try_from("/org/lusby/Cancel").unwrap();
 
     // Call polkit
     let polkit = zbus::Proxy::new(

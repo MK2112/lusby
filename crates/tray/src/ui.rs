@@ -2,10 +2,10 @@ use anyhow::Result;
 use glib::Continue;
 #[cfg(feature = "tray-ui")]
 use gtk::prelude::*;
-use guardianusb_common::types::DeviceInfo;
 #[cfg(feature = "tray-ui")]
 use libappindicator::{AppIndicator, AppIndicatorStatus};
 use libc::geteuid;
+use lusby_common::types::DeviceInfo;
 use std::sync::{Arc, Mutex};
 
 // Minimal GTK/libappindicator system tray with approval actions.
@@ -19,7 +19,7 @@ pub fn start_indicator(
         gtk::init()?;
     }
 
-    let mut indicator = AppIndicator::new("guardianusb", "security-high");
+    let mut indicator = AppIndicator::new("lusby", "security-high");
     indicator.set_status(AppIndicatorStatus::Active);
 
     let mut menu = gtk::Menu::new();
@@ -49,9 +49,9 @@ pub fn start_indicator(
                         if let Ok(conn) = zbus::Connection::system().await {
                             if let Ok(proxy) = zbus::Proxy::new(
                                 &conn,
-                                "org.guardianusb.Daemon",
-                                "/org/guardianusb/Daemon",
-                                "org.guardianusb.Daemon",
+                                "org.lusby.Daemon",
+                                "/org/lusby/Daemon",
+                                "org.lusby.Daemon",
                             )
                             .await
                             {
@@ -110,9 +110,9 @@ pub fn start_indicator(
                         if let Ok(conn) = zbus::Connection::system().await {
                             if let Ok(proxy) = zbus::Proxy::new(
                                 &conn,
-                                "org.guardianusb.Daemon",
-                                "/org/guardianusb/Daemon",
-                                "org.guardianusb.Daemon",
+                                "org.lusby.Daemon",
+                                "/org/lusby/Daemon",
+                                "org.lusby.Daemon",
                             )
                             .await
                             {
@@ -145,9 +145,9 @@ pub fn start_indicator(
                         if let Ok(conn) = zbus::Connection::system().await {
                             if let Ok(proxy) = zbus::Proxy::new(
                                 &conn,
-                                "org.guardianusb.Daemon",
-                                "/org/guardianusb/Daemon",
-                                "org.guardianusb.Daemon",
+                                "org.lusby.Daemon",
+                                "/org/lusby/Daemon",
+                                "org.lusby.Daemon",
                             )
                             .await
                             {

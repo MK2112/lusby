@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use guardianusb_common::backend::UsbBackend;
-use guardianusb_common::types::DeviceInfo;
+use lusby_common::backend::UsbBackend;
+use lusby_common::types::DeviceInfo;
 use std::fs::{self, File};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;

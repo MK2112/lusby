@@ -1,5 +1,5 @@
 use chrono::Utc;
-use guardianusb_common::audit::{AuditEntry, AuditEntryPayload};
+use lusby_common::audit::{AuditEntry, AuditEntryPayload};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;

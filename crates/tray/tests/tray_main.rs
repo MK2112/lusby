@@ -1,4 +1,4 @@
-use guardianusb_tray::{default_ttl, load_config_ttl, ConfigPolicy};
+use lusby_tray::{default_ttl, load_config_ttl, ConfigPolicy};
 
 #[test]
 fn test_default_ttl() {

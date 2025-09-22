@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use guardianusb_common::baseline::{Baseline, DeviceEntry};
-use guardianusb_common::types::DeviceInfo;
+use lusby_common::baseline::{Baseline, DeviceEntry};
+use lusby_common::types::DeviceInfo;
 use std::io::{self, Stdout};
 use tui::layout::{Constraint, Direction, Layout};
 use tui::widgets::{Block, Borders, List, ListItem, Paragraph};
@@ -34,7 +34,7 @@ pub fn run_baseline_editor(devices: Vec<DeviceInfo>) -> io::Result<Option<Baseli
                 )
                 .split(f.size());
 
-            let title = Paragraph::new("GuardianUSB Baseline Editor (TUI)")
+            let title = Paragraph::new("Lusby Baseline Editor (TUI)")
                 .block(Block::default().borders(Borders::ALL));
             f.render_widget(title, chunks[0]);
 

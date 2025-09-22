@@ -1,0 +1,12 @@
+# AppArmor profile (placeholder)
+#include <tunables/global>
+
+profile /usr/sbin/lusby-daemon {
+  include <abstractions/base>
+
+  /usr/sbin/lusby-daemon rmix,
+  /etc/lusby/** r,
+  /var/log/lusby/** rw,
+  /var/lib/lusby/** rw,
+  capability sys_admin,
+}

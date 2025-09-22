@@ -1,6 +1,6 @@
 use chrono::Utc;
-use guardianusb_common::baseline::{Baseline, DeviceEntry};
-use guardianusb_common::types::DeviceInfo;
+use lusby_common::baseline::{Baseline, DeviceEntry};
+use lusby_common::types::DeviceInfo;
 
 fn make_device(vendor_id: &str, product_id: &str, serial: &str, device_type: &str) -> DeviceInfo {
     DeviceInfo {

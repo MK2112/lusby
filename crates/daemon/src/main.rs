@@ -3,7 +3,7 @@ use tracing::info;
 
 mod dbus;
 use dbus::DaemonState;
-use guardianusb_backend_usbguard::UsbguardBackend;
+use lusby_backend_usbguard::UsbguardBackend;
 mod audit;
 mod logind;
 mod polkit;
@@ -13,16 +13,16 @@ mod udev_monitor;
 #[tokio::main]
 async fn main() -> Result<()> {
     setup_logging();
-    info!(target: "guardianusb", event = "daemon_start", "guardianusb-daemon starting");
+    info!(target: "lusby", event = "daemon_start", "lusby-daemon starting");
 
-    // Register D-Bus service on system bus org.guardianusb.Daemon
+    // Register D-Bus service on system bus org.lusby.Daemon
     let backend = UsbguardBackend;
     let state = DaemonState::new(backend);
     // Keep a clone to use in background listeners
     let state_clone = state.clone();
     let connection = zbus::ConnectionBuilder::system()?
-        .name("org.guardianusb.Daemon")?
-        .serve_at("/org/guardianusb/Daemon", state)?
+        .name("org.lusby.Daemon")?
+        .serve_at("/org/lusby/Daemon", state)?
         .build()
         .await?;
 

@@ -7,10 +7,10 @@ use serde::{Deserialize, Serialize};
 use tokio::io::unix::AsyncFd;
 use zbus::{names::BusName, Connection};
 
-use guardianusb_common::fingerprint::{compute_fingerprint, FingerprintInput};
-use guardianusb_common::types::DeviceInfo;
+use lusby_common::fingerprint::{compute_fingerprint, FingerprintInput};
+use lusby_common::types::DeviceInfo;
 
-const DBUS_PATH: &str = "/org/guardianusb/Daemon";
+const DBUS_PATH: &str = "/org/lusby/Daemon";
 
 /// Minimal serialisable struct sent from the blocking thread to the async task.
 #[derive(Serialize, Deserialize, Debug)]
@@ -168,7 +168,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                             tokio::spawn(async move {
                                 match zbus::fdo::DBusProxy::new(&conn).await {
                                     Ok(dbus_proxy) => {
-                                        let bus_name = match BusName::try_from("org.guardianusb") {
+                                        let bus_name = match BusName::try_from("org.lusby") {
                                             Ok(b) => b,
                                             Err(e) => {
                                                 eprintln!("Invalid bus name: {}", e);
@@ -178,9 +178,9 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                                         if let Ok(true) = dbus_proxy.name_has_owner(bus_name).await {
                                             match zbus::Proxy::new(
                                                 &conn,
-                                                "org.guardianusb",
+                                                "org.lusby",
                                                 DBUS_PATH,
-                                                "org.guardianusb.Daemon",
+                                                "org.lusby.Daemon",
                                             ).await {
                                                 Ok(proxy) => {
                                                     if action == "add" || action == "bind" {
@@ -199,7 +199,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                                                         }
                                                     }
                                                 }
-                                                Err(e) => eprintln!("Failed to build proxy to org.guardianusb: {}", e),
+                                                Err(e) => eprintln!("Failed to build proxy to org.lusby: {}", e),
                                             }
                                         }
                                     }
