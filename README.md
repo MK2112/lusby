@@ -71,7 +71,7 @@ The script installs all dependencies, builds the packages, sets up the tray and 
 - AppArmor: Daemon is restricted to necessary paths and capabilities
 - Event-driven: Reacts to udev/D-Bus events
 
-## How Device Recognition and Approval Works
+## How Device Recognition and Approval Work
 
 - **Recognition:**
   - When a device is plugged in, a fingerprint (SHA256 hash over several device-specific fields) is calculated.
@@ -88,6 +88,10 @@ The script installs all dependencies, builds the packages, sets up the tray and 
 - Trusted keys: `/etc/guardianusb/trusted_pubkeys/*.pub`
 - Audit log: `/var/log/guardianusb/audit.log`
 
+- D-Bus API: `org.guardianusb.Daemon` at `/org/guardianusb/Daemon`
+- Methods: list devices, status, temporary/permanent approvals, baseline and key management
+- Signals: `unknown_device_inserted`, `device_removed`
+
 ## Uninstall
 
 ```bash
@@ -95,12 +99,6 @@ sudo systemctl disable --now guardianusb-daemon
 sudo dpkg -r guardianusb-daemon
 sudo rm -rf /etc/guardianusb /var/lib/guardianusb /var/log/guardianusb/audit.log
 ```
-
-## Further Information
-
-- D-Bus API: `org.guardianusb.Daemon` at `/org/guardianusb/Daemon`
-- Methods: list devices, status, temporary/permanent approvals, baseline and key management
-- Signals: `unknown_device_inserted`, `device_removed`
 
 ## Troubleshooting
 
