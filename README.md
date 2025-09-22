@@ -1,6 +1,8 @@
 # lusby
 
-Security framework for handling USB devices on Debian/Ubuntu systems. Enforces a "deny-by-default" policy: unknown USB devices are automatically blocked. Only explicitly approved devices are allowed-temporarily or permanently, cryptographically signed and fully auditable.
+Linux USB denY (lusby), a security framework for handling USB devices on Debian/Ubuntu systems.<br>
+Lusby enforces a "deny-by-default" policy through interaction with USBGuard: unknown USB devices are automatically blocked.<br>
+Only explicitly approved devices are allowed-temporarily or permanently, cryptographically signed and fully auditable.
 
 ## Main Features
 
