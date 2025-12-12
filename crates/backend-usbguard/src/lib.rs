@@ -36,6 +36,25 @@ mod tests {
         let storage = devices.iter().find(|d| d.vendor_id == "0x0781");
         assert!(storage.is_some());
     }
+
+    #[test]
+    fn parse_allows_escaped_quotes() {
+        let sample = r#"
+        10: allow id 1234:5678 serial "AB\"C" name "Test"
+        "#;
+        let devices = UsbguardBackend::parse_list_devices(sample);
+        let dev = devices.first().unwrap();
+        assert_eq!(dev.serial, "AB\"C");
+    }
+
+    use proptest::prelude::*;
+    proptest! {
+        #[test]
+        fn parser_does_not_crash(s in "\\PC*") {
+            // Parser should never panic on random strings
+            let _ = UsbguardBackend::parse_list_devices(&s);
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -60,6 +79,7 @@ impl UsbguardBackend {
         // Very basic parser for `usbguard list-devices` textual output.
         // Example lines (format can vary):
         // 3: allow id 1d6b:0002 serial "" name "xHCI Host Controller" hash "..." parent-hash "..." via-port "..." with-interface ...
+        // serial "AB\"C"
         let mut devices = Vec::new();
         for line in output.lines() {
             let line = line.trim();
@@ -84,10 +104,22 @@ impl UsbguardBackend {
             }
             // Extract serial "..."
             if let Some(sidx) = line.find(" serial \"") {
-                let rest = &line[sidx + 8..];
-                if let Some(endq) = rest.find('"') {
-                    serial = rest[..endq].to_string();
+                let rest = &line[sidx + 9..];
+                let mut s_acc = String::new();
+                let mut escaped = false;
+                for c in rest.chars() {
+                    if escaped {
+                        s_acc.push(c);
+                        escaped = false;
+                    } else if c == '\\' {
+                        escaped = true;
+                    } else if c == '"' {
+                        break;
+                    } else {
+                        s_acc.push(c);
+                    }
                 }
+                serial = s_acc;
             }
             // Guess type by presence of with-interface strings
             let dtype = if line.contains("with-interface +hid") {
