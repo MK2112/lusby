@@ -145,7 +145,11 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                             let fp = compute_fingerprint(&FingerprintInput {
                                 vendor_id: &raw.vendor_id,
                                 product_id: &raw.product_id,
-                                serial: if raw.serial.is_empty() { None } else { Some(&raw.serial) },
+                                serial: if raw.serial.is_empty() {
+                                    None
+                                } else {
+                                    Some(&raw.serial)
+                                },
                                 manufacturer: raw.vendor.as_deref(),
                                 product: raw.product.as_deref(),
                                 raw_descriptors: None,
@@ -177,7 +181,10 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                                         )
                                         .await
                                     {
-                                        eprintln!("Failed to emit unknown_device_inserted signal: {}", e);
+                                        eprintln!(
+                                            "Failed to emit unknown_device_inserted signal: {}",
+                                            e
+                                        );
                                     }
                                 } else if action == "remove" || action == "unbind" {
                                     if let Err(e) = conn

@@ -470,7 +470,12 @@ mod tests {
         let rules = generate_rules_from_baseline(&b);
         // We expect exactly one line because there is one device.
         let lines: Vec<&str> = rules.lines().collect();
-        assert_eq!(lines.len(), 1, "Should produce exactly one line, found: {:?}", lines);
+        assert_eq!(
+            lines.len(),
+            1,
+            "Should produce exactly one line, found: {:?}",
+            lines
+        );
         assert!(lines[0].contains("serial \"AB?C\""));
     }
 
@@ -479,7 +484,7 @@ mod tests {
     proptest! {
         #[test]
         fn rule_generation_safety(
-            vid in "[0-9a-fA-F]{1,10}", 
+            vid in "[0-9a-fA-F]{1,10}",
             pid in "[0-9a-fA-F]{1,10}",
             serial in proptest::option::of("\\PC*")
         ) {
@@ -506,19 +511,19 @@ mod tests {
             // Note: The generator always adds a newline at the end of each rule, so we expect exactly 1 line
             // if we filter out empty strings or simply count valid rules.
             // Our generator produces "allow ...\n", so `lines()` (which splits on \n) will see 1 item.
-            
+
             prop_assert_eq!(lines.len(), 1, "Should produce exactly 1 rule line, found {}", lines.len());
-            
+
             // Further assertion: The rule should verify basic syntax
             let rule = lines[0];
             prop_assert!(rule.starts_with("allow id "));
-            
+
             // Check for no control characters (except maybe the ones we sanitized to '?' which is safe)
             // The output should be safe 7-bit ASCII or similar?
             // Actually, we replaced controls with '?'.
             // Let's ensure no raw newlines or CRs remain (already checked by lines.len()=1 mostly, but checking chars is good)
             prop_assert!(!rule.contains('\r'));
-            prop_assert!(!rule.contains('\n')); 
+            prop_assert!(!rule.contains('\n'));
         }
     }
 }
