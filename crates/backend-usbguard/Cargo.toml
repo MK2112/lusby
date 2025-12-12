@@ -2,7 +2,7 @@
 name = "lusby-backend-usbguard"
 version = "0.1.0"
 edition = "2021"
-license = "Apache-2.0"
+license = "GNU Affero General Public License v3.0"
 
 [dependencies]
 async-trait = "0.1"
@@ -11,3 +11,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+
+[dev-dependencies]
+proptest = "1.0"
