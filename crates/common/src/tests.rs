@@ -85,3 +85,37 @@ fn audit_chain_integrity() {
     bad[1].payload.action = "tamper".into();
     assert!(!verify_chain(&bad));
 }
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use crate::crypto::canonical_json_vec;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn canonical_json_does_not_crash(s in "\\PC*") {
+            // Generating random strings to serialize
+            let _ = canonical_json_vec(&s);
+        }
+
+        #[test]
+        fn fingerprint_stability(
+            vid in "[0-9a-f]{4}",
+            pid in "[0-9a-f]{4}",
+            serial in proptest::option::of("[a-zA-Z0-9]{1,20}")
+        ) {
+            let input = FingerprintInput {
+                vendor_id: &vid,
+                product_id: &pid,
+                serial: serial.as_deref(),
+                manufacturer: None,
+                product: None,
+                raw_descriptors: None,
+            };
+            let fp1 = compute_fingerprint(&input);
+            let fp2 = compute_fingerprint(&input);
+            prop_assert!(fp1.starts_with("sha256:"));
+            prop_assert_eq!(fp1, fp2);
+        }
+    }
+}
