@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::io::unix::AsyncFd;
-use zbus::{names::BusName, Connection};
+use zbus::Connection;
 
 use lusby_common::fingerprint::{compute_fingerprint, FingerprintInput};
 use lusby_common::types::DeviceInfo;

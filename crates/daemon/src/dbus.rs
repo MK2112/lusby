@@ -495,7 +495,7 @@ mod tests {
                 devices: vec![DeviceEntry {
                     vendor_id: vid,
                     product_id: pid,
-                    serial: serial,
+                    serial,
                     bus_path: None,
                     descriptors_hash: "none".into(),
                     device_type: "hid".into(),
