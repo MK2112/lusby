@@ -21,3 +21,4 @@ async-trait = "0.1"
 
 [dev-dependencies]
 rand = "0.8"
+proptest = "1.0"
