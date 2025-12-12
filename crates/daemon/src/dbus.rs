@@ -55,21 +55,33 @@ impl DaemonState {
     }
 }
 
+fn sanitize_rule_string(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
+}
+
 fn generate_rules_from_baseline(b: &Baseline) -> String {
     // Very conservative rule builder: allow by vid:pid and optional serial.
     // Example: "allow id 046d:c534 serial \"ABC\" with-interface *:*:*".
     let mut out = String::new();
     for d in &b.devices {
-        let id = format!(
-            "{}:{}",
-            d.vendor_id.trim_start_matches("0x").to_lowercase(),
-            d.product_id.trim_start_matches("0x").to_lowercase()
-        );
+        // Sanitize IDs
+        let vid = sanitize_rule_string(&d.vendor_id)
+            .trim_start_matches("0x")
+            .to_lowercase();
+        let pid = sanitize_rule_string(&d.product_id)
+            .trim_start_matches("0x")
+            .to_lowercase();
+        let id = format!("{}:{}", vid, pid);
+
         if let Some(serial) = &d.serial {
+            // Sanitize serial: reject control chars including newlines
+            let sanitized_serial = sanitize_rule_string(serial);
             out.push_str(&format!(
                 "allow id {} serial \"{}\"\n",
                 id,
-                serial.replace('"', "\\\"")
+                sanitized_serial.replace('"', "\\\"")
             ));
         } else {
             out.push_str(&format!("allow id {}\n", id));
@@ -431,4 +443,82 @@ impl DaemonState {
 
     #[zbus(signal)]
     async fn device_removed(ctxt: &SignalContext<'_>, device_id: &str) -> zbus::Result<()>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lusby_common::baseline::DeviceEntry;
+
+    #[test]
+    fn test_generate_rules_safeguard() {
+        let b = Baseline {
+            version: 1,
+            created_by: "test".into(),
+            created_at: chrono::Utc::now(),
+            devices: vec![DeviceEntry {
+                vendor_id: "0x1234".into(),
+                product_id: "0x5678".into(),
+                serial: Some("AB\nC".into()), // malicious newline
+                bus_path: None,
+                descriptors_hash: "none".into(),
+                device_type: "hid".into(),
+                comment: None,
+            }],
+            signature: None,
+        };
+        let rules = generate_rules_from_baseline(&b);
+        // We expect exactly one line because there is one device.
+        let lines: Vec<&str> = rules.lines().collect();
+        assert_eq!(lines.len(), 1, "Should produce exactly one line, found: {:?}", lines);
+        assert!(lines[0].contains("serial \"AB?C\""));
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn rule_generation_safety(
+            vid in "[0-9a-fA-F]{1,10}", 
+            pid in "[0-9a-fA-F]{1,10}",
+            serial in proptest::option::of("\\PC*")
+        ) {
+             let b = Baseline {
+                version: 1,
+                created_by: "prop".into(),
+                created_at: chrono::Utc::now(),
+                devices: vec![DeviceEntry {
+                    vendor_id: vid,
+                    product_id: pid,
+                    serial: serial,
+                    bus_path: None,
+                    descriptors_hash: "none".into(),
+                    device_type: "hid".into(),
+                    comment: None,
+                }],
+                signature: None,
+            };
+            let rules = generate_rules_from_baseline(&b);
+            let lines: Vec<&str> = rules.lines().collect();
+
+            // Safety assertion: The rules string must NOT contain more lines than devices (1).
+            // This ensures no newline injection was successfully performed to create extra rules.
+            // Note: The generator always adds a newline at the end of each rule, so we expect exactly 1 line
+            // if we filter out empty strings or simply count valid rules.
+            // Our generator produces "allow ...\n", so `lines()` (which splits on \n) will see 1 item.
+            
+            prop_assert_eq!(lines.len(), 1, "Should produce exactly 1 rule line, found {}", lines.len());
+            
+            // Further assertion: The rule should verify basic syntax
+            let rule = lines[0];
+            prop_assert!(rule.starts_with("allow id "));
+            
+            // Check for no control characters (except maybe the ones we sanitized to '?' which is safe)
+            // The output should be safe 7-bit ASCII or similar?
+            // Actually, we replaced controls with '?'.
+            // Let's ensure no raw newlines or CRs remain (already checked by lines.len()=1 mostly, but checking chars is good)
+            prop_assert!(!rule.contains('\r'));
+            prop_assert!(!rule.contains('\n')); 
+        }
+    }
 }
