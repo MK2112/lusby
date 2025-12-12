@@ -166,44 +166,32 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                             let info_clone = info.clone();
                             let action = raw.action.clone();
                             tokio::spawn(async move {
-                                match zbus::fdo::DBusProxy::new(&conn).await {
-                                    Ok(dbus_proxy) => {
-                                        let bus_name = match BusName::try_from("org.lusby") {
-                                            Ok(b) => b,
-                                            Err(e) => {
-                                                eprintln!("Invalid bus name: {}", e);
-                                                return;
-                                            }
-                                        };
-                                        if let Ok(true) = dbus_proxy.name_has_owner(bus_name).await {
-                                            match zbus::Proxy::new(
-                                                &conn,
-                                                "org.lusby",
-                                                DBUS_PATH,
-                                                "org.lusby.Daemon",
-                                            ).await {
-                                                Ok(proxy) => {
-                                                    if action == "add" || action == "bind" {
-                                                        if let Err(e) =
-                                                            proxy.call_method("UnknownDeviceInserted", &(&info_clone,))
-                                                                .await
-                                                        {
-                                                            eprintln!("Failed to emit device inserted signal: {}", e);
-                                                        }
-                                                    } else if action == "remove" || action == "unbind" {
-                                                        if let Err(e) =
-                                                            proxy.call_method("DeviceRemoved", &(&info_clone.id,))
-                                                                .await
-                                                        {
-                                                            eprintln!("Failed to emit device removed signal: {}", e);
-                                                        }
-                                                    }
-                                                }
-                                                Err(e) => eprintln!("Failed to build proxy to org.lusby: {}", e),
-                                            }
-                                        }
+                                if action == "add" || action == "bind" {
+                                    if let Err(e) = conn
+                                        .emit_signal(
+                                            Option::<&str>::None,
+                                            DBUS_PATH,
+                                            "org.lusby.Daemon",
+                                            "unknown_device_inserted",
+                                            &(&info_clone,),
+                                        )
+                                        .await
+                                    {
+                                        eprintln!("Failed to emit unknown_device_inserted signal: {}", e);
                                     }
-                                    Err(e) => eprintln!("Failed to create D-Bus proxy: {}", e),
+                                } else if action == "remove" || action == "unbind" {
+                                    if let Err(e) = conn
+                                        .emit_signal(
+                                            Option::<&str>::None,
+                                            DBUS_PATH,
+                                            "org.lusby.Daemon",
+                                            "device_removed",
+                                            &(&info_clone.id,),
+                                        )
+                                        .await
+                                    {
+                                        eprintln!("Failed to emit DeviceRemoved signal: {}", e);
+                                    }
                                 }
                             });
                         }
