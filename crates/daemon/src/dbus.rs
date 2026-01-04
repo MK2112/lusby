@@ -33,6 +33,7 @@ impl DaemonState {
         //This is a test-only function
         self.inner.lock().unwrap().ephemeral.len()
     }
+
     pub async fn revoke_all_ephemeral(&self) {
         let ids: Vec<String> = self
             .inner
@@ -52,6 +53,36 @@ impl DaemonState {
             );
         }
         self.inner.lock().unwrap().ephemeral.clear();
+    }
+
+    pub async fn cleanup_expired_ephemeral(&self) {
+        let expired_ids: Vec<(String, u32)> = {
+            let mut inner = self.inner.lock().unwrap();
+            let mut expired = Vec::new();
+            let now = std::time::Instant::now();
+            inner.ephemeral.retain(|id, expiry| {
+                if now >= *expiry {
+                    expired.push((id.clone(), 0));
+                    false
+                } else {
+                    true
+                }
+            });
+            expired
+        };
+
+        for (id, _) in expired_ids {
+            tracing::info!("Ephemeral approval expired for device: {}", id);
+            let devices = self.backend.list_devices().await;
+            if let Some(dev) = devices.iter().find(|d| d.id == id) {
+                self.audit.lock().unwrap().log(
+                    "ephemeral_expired",
+                    Some(id.clone()),
+                    "auto_revoke_on_expiry",
+                    None,
+                );
+            }
+        }
     }
 }
 
@@ -211,7 +242,15 @@ impl DaemonState {
         };
         let baseline: Baseline = match serde_json::from_slice(&data) {
             Ok(b) => b,
-            Err(_) => return false,
+            Err(e) => {
+                self.audit.lock().unwrap().log(
+                    "security",
+                    None,
+                    &format!("baseline_parse_failed: {} (path: {:?})", e, path),
+                    None,
+                );
+                return false;
+            }
         };
         // Load trusted keys
         let mut verified = false;
