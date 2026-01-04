@@ -64,11 +64,7 @@ impl AuditLogger {
             const MAX_RETRIES: u32 = 3;
 
             while retry_count < MAX_RETRIES {
-                match OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&path)
-                {
+                match OpenOptions::new().create(true).append(true).open(&path) {
                     Ok(mut f) => {
                         if let Ok(line) = serde_json::to_string(&entry_clone) {
                             match writeln!(f, "{}", line) {
@@ -79,23 +75,38 @@ impl AuditLogger {
                                     return;
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to write audit entry (attempt {}): {}", retry_count + 1, e);
+                                    eprintln!(
+                                        "Failed to write audit entry (attempt {}): {}",
+                                        retry_count + 1,
+                                        e
+                                    );
                                     retry_count += 1;
                                     if retry_count < MAX_RETRIES {
-                                        std::thread::sleep(std::time::Duration::from_millis(100 * (retry_count as u64)));
+                                        std::thread::sleep(std::time::Duration::from_millis(
+                                            100 * (retry_count as u64),
+                                        ));
                                     }
                                 }
                             }
                         } else {
-                            eprintln!("Failed to serialize audit entry (attempt {})", retry_count + 1);
+                            eprintln!(
+                                "Failed to serialize audit entry (attempt {})",
+                                retry_count + 1
+                            );
                             retry_count += 1;
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to open audit log file (attempt {}): {}", retry_count + 1, e);
+                        eprintln!(
+                            "Failed to open audit log file (attempt {}): {}",
+                            retry_count + 1,
+                            e
+                        );
                         retry_count += 1;
                         if retry_count < MAX_RETRIES {
-                            std::thread::sleep(std::time::Duration::from_millis(100 * (retry_count as u64)));
+                            std::thread::sleep(std::time::Duration::from_millis(
+                                100 * (retry_count as u64),
+                            ));
                         }
                     }
                 }

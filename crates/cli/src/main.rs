@@ -163,7 +163,8 @@ async fn main() -> Result<()> {
                     if secret.len() != 32 {
                         anyhow::bail!("secret must be 32 raw bytes in base64");
                     }
-                    let secret_array: [u8; 32] = secret.try_into()
+                    let secret_array: [u8; 32] = secret
+                        .try_into()
                         .map_err(|_| anyhow::anyhow!("failed to convert secret bytes to array"))?;
                     let sk = SigningKey::from_bytes(&secret_array);
                     baseline.sign_attach(&sk).map_err(|e| anyhow::anyhow!(e))?;

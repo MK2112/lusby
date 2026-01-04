@@ -57,8 +57,8 @@ async fn main() -> Result<()> {
     });
 
     // Run until SIGINT/SIGTERM
-    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .unwrap();
+    let mut sigterm =
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
     tokio::select! {
         _ = tokio::signal::ctrl_c() => {
             info!("received ctrl_c, exiting");

@@ -120,10 +120,7 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                match proxy
-                                    .call_method("revoke_device", &(device_id))
-                                    .await
-                                {
+                                match proxy.call_method("revoke_device", &(device_id)).await {
                                     Ok(_) => println!("Revoked device {}", device_id),
                                     Err(e) => eprintln!("Failed to revoke device: {}", e),
                                 }
@@ -156,10 +153,7 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                match proxy
-                                    .call_method("revoke_device", &(device_id))
-                                    .await
-                                {
+                                match proxy.call_method("revoke_device", &(device_id)).await {
                                     Ok(_) => println!("Revoked device {}", device_id),
                                     Err(e) => eprintln!("Failed to revoke device: {}", e),
                                 }
