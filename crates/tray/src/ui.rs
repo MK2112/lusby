@@ -58,11 +58,12 @@ pub fn start_indicator(
                             )
                             .await
                             {
+                                let device_id_clone = device_id.clone();
                                 match proxy
                                     .call_method("request_ephemeral_allow", &(device_id, ttl, uid))
                                     .await
                                 {
-                                    Ok(_) => println!("Approved device {}", device_id),
+                                    Ok(_) => println!("Approved device {}", device_id_clone),
                                     Err(e) => eprintln!("Failed to approve device: {}", e),
                                 }
                             }

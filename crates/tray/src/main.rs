@@ -1,7 +1,6 @@
 use anyhow::Result;
 use futures_util::StreamExt;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use zbus::Connection;
 #[cfg(feature = "tray-ui")]
 mod ui;
@@ -10,7 +9,6 @@ use lusby_common::fingerprint::short_fingerprint;
 use lusby_common::types::DeviceInfo;
 use notify_rust::Notification;
 use serde::Deserialize;
-use tokio::runtime::Handle;
 
 #[derive(Debug, Deserialize)]
 struct ConfigPolicy {
@@ -54,7 +52,11 @@ async fn main() -> Result<()> {
 
     #[cfg(feature = "tray-ui")]
     {
-        ui::start_indicator(last_seen.clone(), default_ttl)?;
+        ui::start_indicator(
+            last_seen.clone(),
+            default_ttl,
+            tokio::runtime::Handle::current(),
+        )?;
     }
 
     let mut stream = zbus::MessageStream::from(&conn);

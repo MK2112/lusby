@@ -74,7 +74,7 @@ impl DaemonState {
         for (id, _) in expired_ids {
             tracing::info!("Ephemeral approval expired for device: {}", id);
             let devices = self.backend.list_devices().await;
-            if let Some(dev) = devices.iter().find(|d| d.id == id) {
+            if let Some(_dev) = devices.iter().find(|d| d.id == id) {
                 self.audit.lock().unwrap().log(
                     "ephemeral_expired",
                     Some(id.clone()),
