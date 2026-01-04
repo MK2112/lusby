@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures_util::StreamExt;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use zbus::Connection;
 #[cfg(feature = "tray-ui")]
 mod ui;
@@ -9,6 +10,7 @@ use lusby_common::fingerprint::short_fingerprint;
 use lusby_common::types::DeviceInfo;
 use notify_rust::Notification;
 use serde::Deserialize;
+use tokio::runtime::Handle;
 
 #[derive(Debug, Deserialize)]
 struct ConfigPolicy {

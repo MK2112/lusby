@@ -7,6 +7,7 @@ use libappindicator::{AppIndicator, AppIndicatorStatus};
 use libc::geteuid;
 use lusby_common::types::DeviceInfo;
 use std::sync::{Arc, Mutex};
+use tokio::runtime::Handle;
 
 // Minimal GTK/libappindicator system tray with approval actions.
 // Keeps idle footprint low by avoiding polling; UI updates are user-driven.
@@ -14,6 +15,7 @@ use std::sync::{Arc, Mutex};
 pub fn start_indicator(
     last_seen: Arc<Mutex<Option<DeviceInfo>>>,
     default_ttl_secs: u32,
+    rt_handle: Handle,
 ) -> Result<()> {
     if !gtk::is_initialized_main_thread() {
         gtk::init()?;
@@ -36,6 +38,7 @@ pub fn start_indicator(
         let last_seen = last_seen.clone();
         let approval_end = approval_end.clone();
         let ttl = default_ttl_secs;
+        let handle = rt_handle.clone();
         approve_item.connect_activate(move |_| {
             if let Some(dev) = last_seen.lock().unwrap().clone() {
                 let device_id = dev.id.clone();
@@ -43,9 +46,9 @@ pub fn start_indicator(
                 let ttl: u32 = ttl;
                 let end = std::time::Instant::now() + std::time::Duration::from_secs(ttl as u64);
                 *approval_end.lock().unwrap() = Some(end);
+                let handle = handle.clone();
                 std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async move {
+                    handle.block_on(async move {
                         if let Ok(conn) = zbus::Connection::system().await {
                             if let Ok(proxy) = zbus::Proxy::new(
                                 &conn,
@@ -55,13 +58,13 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _: bool = proxy
+                                match proxy
                                     .call_method("request_ephemeral_allow", &(device_id, ttl, uid))
                                     .await
-                                    .expect("D-Bus call failed")
-                                    .body()
-                                    .deserialize()
-                                    .expect("Failed to deserialize response");
+                                {
+                                    Ok(_) => println!("Approved device {}", device_id),
+                                    Err(e) => eprintln!("Failed to approve device: {}", e),
+                                }
                             }
                         }
                     });
@@ -100,13 +103,14 @@ pub fn start_indicator(
     {
         let last_seen = last_seen.clone();
         let approval_end = approval_end.clone();
+        let handle = rt_handle.clone();
         revoke_now_item.connect_activate(move |_| {
             if let Some(dev) = last_seen.lock().unwrap().clone() {
                 let device_id = dev.id.clone();
                 *approval_end.lock().unwrap() = None;
+                let handle = handle.clone();
                 std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async move {
+                    handle.block_on(async move {
                         if let Ok(conn) = zbus::Connection::system().await {
                             if let Ok(proxy) = zbus::Proxy::new(
                                 &conn,
@@ -116,13 +120,13 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _: bool = proxy
+                                match proxy
                                     .call_method("revoke_device", &(device_id))
                                     .await
-                                    .expect("D-Bus call failed")
-                                    .body()
-                                    .deserialize()
-                                    .expect("Failed to deserialize response");
+                                {
+                                    Ok(_) => println!("Revoked device {}", device_id),
+                                    Err(e) => eprintln!("Failed to revoke device: {}", e),
+                                }
                             }
                         }
                     });
@@ -136,12 +140,13 @@ pub fn start_indicator(
     let revoke_item = gtk::MenuItem::with_label("Revoke last device");
     {
         let last_seen = last_seen.clone();
+        let handle = rt_handle.clone();
         revoke_item.connect_activate(move |_| {
             if let Some(dev) = last_seen.lock().unwrap().clone() {
                 let device_id = dev.id.clone();
+                let handle = handle.clone();
                 std::thread::spawn(move || {
-                    let rt = tokio::runtime::Runtime::new().unwrap();
-                    rt.block_on(async move {
+                    handle.block_on(async move {
                         if let Ok(conn) = zbus::Connection::system().await {
                             if let Ok(proxy) = zbus::Proxy::new(
                                 &conn,
@@ -151,13 +156,13 @@ pub fn start_indicator(
                             )
                             .await
                             {
-                                let _: bool = proxy
+                                match proxy
                                     .call_method("revoke_device", &(device_id))
                                     .await
-                                    .expect("D-Bus call failed")
-                                    .body()
-                                    .deserialize()
-                                    .expect("Failed to deserialize response");
+                                {
+                                    Ok(_) => println!("Revoked device {}", device_id),
+                                    Err(e) => eprintln!("Failed to revoke device: {}", e),
+                                }
                             }
                         }
                     });
@@ -214,6 +219,7 @@ pub fn start_indicator(
 pub fn start_indicator(
     _last_seen: Arc<Mutex<Option<DeviceInfo>>>,
     _default_ttl_secs: u32,
+    _rt_handle: Handle,
 ) -> Result<()> {
     Ok(())
 }

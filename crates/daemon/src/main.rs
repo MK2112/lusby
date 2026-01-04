@@ -46,9 +46,27 @@ async fn main() -> Result<()> {
         }
     });
 
+    // Start ephemeral approval cleanup task
+    let state_for_cleanup = state_clone.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            state_for_cleanup.cleanup_expired_ephemeral().await;
+        }
+    });
+
     // Run until SIGINT/SIGTERM
-    tokio::signal::ctrl_c().await?;
-    info!("received ctrl_c, exiting");
+    let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .unwrap();
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            info!("received ctrl_c, exiting");
+        }
+        _ = sigterm.recv() => {
+            info!("received SIGTERM, exiting");
+        }
+    }
     Ok(())
 }
 
