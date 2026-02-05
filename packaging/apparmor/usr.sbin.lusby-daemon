@@ -1,12 +1,41 @@
-# AppArmor profile (placeholder)
+# AppArmor profile for lusby-daemon
 #include <tunables/global>
 
 profile /usr/sbin/lusby-daemon {
   include <abstractions/base>
+  include <abstractions/dbus-system>
 
+  # Binary execution
   /usr/sbin/lusby-daemon rmix,
-  /etc/lusby/** r,
+  /usr/bin/usbguard ix,
+
+  # Configuration and baselines
+  /etc/lusby/ r,
+  /etc/lusby/** rw,
+  /etc/usbguard/rules.conf r,
+  /etc/usbguard/rules.conf.tmp rw,
+  /etc/usbguard/rules.conf.bak rw,
+
+  # Logs and state
+  /var/log/lusby/ rw,
   /var/log/lusby/** rw,
+  /var/lib/lusby/ rw,
   /var/lib/lusby/** rw,
+
+  # D-Bus system access
+  /run/dbus/system_bus_socket rw,
+  /sys/fs/cgroup/systemd/system.slice/lusby-daemon.service/cgroup.procs rw,
+
+  # USB device information (for listing devices)
+  @{SYS}/bus/usb/** r,
+  @{SYS}/class/usb/** r,
+  @{PROC}/@{pid}/cmdline r,
+  @{PROC}/@{pid}/fd/ r,
+
+  # Required capabilities
   capability sys_admin,
+  capability dac_override,
+  capability dac_read_search,
+  capability fowner,
+  capability fsetid,
 }
