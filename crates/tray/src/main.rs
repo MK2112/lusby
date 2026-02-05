@@ -1,6 +1,7 @@
 use anyhow::Result;
 use futures_util::StreamExt;
 use std::sync::{Arc, Mutex};
+use tracing::info;
 use zbus::Connection;
 #[cfg(feature = "tray-ui")]
 mod ui;
@@ -41,9 +42,22 @@ fn load_config_ttl() -> u32 {
     default_ttl()
 }
 
+fn setup_logging() {
+    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let fmt_layer = fmt::layer()
+        .with_target(true)
+        .with_timer(fmt::time::UtcTime::rfc_3339());
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(fmt_layer)
+        .init();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("lusby-tray starting");
+    setup_logging();
+    info!("lusby-tray starting");
     let conn = Connection::system().await?;
     let path_str = "/org/lusby/Daemon";
     let iface = "org.lusby.Daemon";
