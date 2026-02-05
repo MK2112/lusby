@@ -38,7 +38,17 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
             .and_then(|b| b.match_subsystem("usb"))
             .and_then(|b| b.listen())
         {
-            Ok(s) => s,
+            Ok(mut s) => {
+                // Make socket blocking for iterator
+                use std::os::unix::io::AsRawFd;
+                let fd = s.as_raw_fd();
+                // Remove non-blocking flag to allow blocking iteration
+                unsafe {
+                    let flags = libc::fcntl(fd, libc::F_GETFL, 0);
+                    libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
+                }
+                s
+            },
             Err(e) => {
                 eprintln!("Failed to set up udev monitor: {}", e);
                 return;
@@ -170,7 +180,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                             let info_clone = info.clone();
                             let action = raw.action.clone();
                             tokio::spawn(async move {
-                                if action == "add" || action == "bind" {
+                                if action == "add" {
                                     if let Err(e) = conn
                                         .emit_signal(
                                             Option::<&str>::None,
@@ -186,7 +196,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                                             e
                                         );
                                     }
-                                } else if action == "remove" || action == "unbind" {
+                                } else if action == "remove" {
                                     if let Err(e) = conn
                                         .emit_signal(
                                             Option::<&str>::None,

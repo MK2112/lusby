@@ -131,16 +131,16 @@ async fn main() -> Result<()> {
     .await?;
     match cli.command {
         Commands::List => {
-            let devices: Vec<DeviceInfo> = proxy.call("list_devices", &()).await?;
+            let devices: Vec<DeviceInfo> = proxy.call("ListDevices", &()).await?;
             println!("{}", serde_json::to_string_pretty(&devices)?);
         }
         Commands::Info { device } => {
-            let info: DeviceInfo = proxy.call("get_device_info", &(device)).await?;
+            let info: DeviceInfo = proxy.call("GetDeviceInfo", &(device)).await?;
             println!("{}", serde_json::to_string_pretty(&info)?);
         }
         Commands::Status => {
             let status: lusby_common::types::PolicyStatus =
-                proxy.call("get_policy_status", &()).await?;
+                proxy.call("GetPolicyStatus", &()).await?;
             println!("{}", serde_json::to_string_pretty(&status)?);
         }
         Commands::Baseline { cmd } => {
@@ -177,7 +177,7 @@ async fn main() -> Result<()> {
                     comment,
                     output,
                 } => {
-                    let info: DeviceInfo = proxy.call("get_device_info", &(device)).await?;
+                    let info: DeviceInfo = proxy.call("GetDeviceInfo", &(device)).await?;
                     if info.id.is_empty() {
                         anyhow::bail!("device not found");
                     }
@@ -301,7 +301,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Revoke { device } => {
-            let ok: bool = proxy.call("revoke_device", &(device)).await?;
+            let ok: bool = proxy.call("RevokeDevice", &(device)).await?;
             if ok {
                 println!("OK");
             } else {
@@ -310,7 +310,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::Tui => {
-            let devices: Vec<DeviceInfo> = proxy.call("list_devices", &()).await?;
+            let devices: Vec<DeviceInfo> = proxy.call("ListDevices", &()).await?;
             match tui::run_baseline_editor(devices) {
                 Ok(Some(baseline)) => {
                     let path: String = format!(

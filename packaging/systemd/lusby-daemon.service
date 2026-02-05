@@ -11,20 +11,14 @@ ExecStart=/usr/sbin/lusby-daemon
 
 # Restart policy for robustness
 Restart=on-failure
-RestartSec=2
-RestartForceExitStatus=1 2 3
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=3
 
 # Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=lusby-daemon
-
-# Security hardening
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-NoNewPrivileges=no
-UMask=0077
 
 [Install]
 WantedBy=multi-user.target

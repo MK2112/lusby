@@ -1,11 +1,16 @@
-[lib]
-name = "lusby_tray"
-path = "src/lib.rs"
 [package]
 name = "lusby-tray"
 version = "0.1.0"
 edition = "2021"
 license = "proprietary"
+
+[[bin]]
+name = "lusby-tray"
+path = "src/main.rs"
+
+[lib]
+name = "lusby_tray"
+path = "src/lib.rs"
 
 [features]
 default = []

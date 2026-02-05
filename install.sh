@@ -40,18 +40,29 @@ log "Building Lusby packages..."
 cargo install cargo-deb --locked || true
 
 # Build main workspace
-cargo build --release --workspace
+cargo build --release --workspace --features udev-monitor
 
 # Build and install the tray application with UI support
 log "Building tray application..."
-cd crates/tray
-cargo build --release --features tray-ui
+cargo build --release --features tray-ui -p lusby-tray
 sudo cp target/release/lusby-tray /usr/local/bin/
 
-# Create autostart entry for the tray application
-log "Setting up tray application autostart..."
-mkdir -p ~/.config/autostart
-cat > ~/.config/autostart/lusby-tray.desktop <<EOL
+# Build the daemon package
+cargo deb --no-build --no-strip -p lusby-daemon
+
+log "Installing Lusby daemon package..."
+sudo dpkg -i target/debian/lusby-daemon_*.deb
+
+# Set correct permissions for the tray binary
+sudo chmod 755 /usr/local/bin/lusby-tray
+
+# Set up autostart for the actual (non-root) user
+# Get the user who ran sudo
+ACTUAL_USER="${SUDO_USER:-$(whoami)}"
+if [ "$ACTUAL_USER" != "root" ]; then
+  log "Setting up autostart for user $ACTUAL_USER..."
+  mkdir -p /home/$ACTUAL_USER/.config/autostart
+  cat > /home/$ACTUAL_USER/.config/autostart/lusby-tray.desktop <<EOL
 [Desktop Entry]
 Type=Application
 Name=Lusby Tray
@@ -62,17 +73,11 @@ StartupNotify=false
 Terminal=false
 Comment=USB device management tray for Lusby
 EOL
-
-# Build the daemon package
-cd ../daemon
-cargo deb --no-build --no-strip
-
-log "Installing Lusby daemon package..."
-sudo dpkg -i target/debian/lusby-daemon_*.deb
-cd ../../
-
-# Set correct permissions for the tray binary
-sudo chmod 755 /usr/local/bin/lusby-tray
+  chown $ACTUAL_USER:$ACTUAL_USER /home/$ACTUAL_USER/.config/autostart/lusby-tray.desktop
+  chmod 644 /home/$ACTUAL_USER/.config/autostart/lusby-tray.desktop
+else
+  warn "Running as root; cannot determine regular user for autostart setup"
+fi
 
 # Lusby requires some directories to be created
 log "Creating Lusby directories..."
@@ -81,21 +86,42 @@ sudo mkdir -p /etc/lusby/{baselines,trusted_pubkeys} \
              /var/log/lusby
 
 sudo chown -R root:root /etc/lusby /var/lib/lusby /var/log/lusby
-sudo chmod 700 /etc/lusby /var/lib/lusby
+sudo chmod 700 /etc/lusby /etc/lusby/baselines /etc/lusby/trusted_pubkeys /var/lib/lusby /var/log/lusby
 sudo chmod 600 /etc/lusby/config.toml
 
 sudo touch /var/log/lusby/audit.log
 sudo chmod 600 /var/log/lusby/audit.log
+sudo chown root:root /var/log/lusby/audit.log
+
+log "Installing udev rule for USB device detection..."
+sudo tee /etc/udev/rules.d/80-lusby.rules > /dev/null << 'EOF'
+ACTION=="add|remove", SUBSYSTEM=="usb", TAG+="lusby"
+EOF
+sudo udevadm control --reload
+sudo udevadm trigger
+ok "udev rule installed and reloaded"
 
 log "Enabling usbguard service..."
 sudo systemctl enable --now usbguard
 
 log "Loading AppArmor profile..."
-sudo apparmor_parser -r -W /etc/apparmor.d/usr.sbin.lusby-daemon
-sudo aa-enforce /etc/apparmor.d/usr.sbin.lusby-daemon
+if command -v apparmor_parser &>/dev/null && command -v aa-enforce &>/dev/null; then
+  sudo apparmor_parser -r -W /etc/apparmor.d/usr.sbin.lusby-daemon
+  sudo aa-enforce /etc/apparmor.d/usr.sbin.lusby-daemon
+else
+  warn "AppArmor tools not available, skipping AppArmor profile loading"
+fi
 
 log "Enabling Lusby daemon..."
-sudo systemctl enable --now lusby-daemon
+sudo systemctl enable --now lusby-daemon || true
+
+# Brief delay to let daemon attempt to start
+sleep 2
+
+# Check if daemon started and show errors if not
+if ! systemctl is-active --quiet lusby-daemon; then
+  fail "lusby-daemon failed to start. Check logs with: sudo journalctl -u lusby-daemon -n 20"
+fi
 
 ####
 #
@@ -163,11 +189,22 @@ else
 fi
 
 # Brief API call test
-if busctl --system call org.lusby.Daemon /org/lusby/Daemon org.lusby.Daemon get_policy_status >/dev/null 2>&1; then
-  ok "D-Bus get_policy_status ok"
+if sudo busctl --system call org.lusby.Daemon /org/lusby/Daemon org.lusby.Daemon GetPolicyStatus >/dev/null 2>&1; then
+  ok "D-Bus GetPolicyStatus ok"
 else
-  warn "D-Bus call failed: get_policy_status"
+  warn "D-Bus call failed: GetPolicyStatus"
 fi
+
+# Ensure D-Bus service file exists
+log "Setting up D-Bus service file..."
+sudo tee /usr/share/dbus-1/system-services/org.lusby.Daemon.service > /dev/null << 'EOF'
+[D-BUS Service]
+Name=org.lusby.Daemon
+Exec=/usr/sbin/lusby-daemon
+User=root
+SystemService=true
+EOF
+ok "D-Bus service file created"
 
 log "Installation complete!"
 echo "Check status with: systemctl status lusby-daemon"

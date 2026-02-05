@@ -167,7 +167,8 @@ impl DaemonState {
     async fn request_ephemeral_allow(&self, device_id: &str, ttl: u32, requester_uid: u32) -> bool {
         // Eingabevalidierung
         let valid_id: bool = !device_id.is_empty() && device_id.len() <= 64 && device_id.is_ascii();
-        let valid_ttl: bool = (1..=86400).contains(&ttl);
+        // TTL: 0 = indefinite, 1-86400 = temporary (1 second to 1 day)
+        let valid_ttl: bool = ttl == 0 || (1..=86400).contains(&ttl);
         let valid_uid: bool = requester_uid > 0;
         if !valid_id || !valid_ttl || !valid_uid {
             self.audit.lock().unwrap().log(
@@ -186,7 +187,12 @@ impl DaemonState {
             Some(requester_uid),
         );
         if ok {
-            let expiry: Instant = Instant::now() + Duration::from_secs(ttl as u64);
+            let expiry: Instant = if ttl == 0 {
+                // Indefinite: set expiry to a very far future time (100 years)
+                Instant::now() + Duration::from_secs(3155760000)
+            } else {
+                Instant::now() + Duration::from_secs(ttl as u64)
+            };
             self.inner
                 .lock()
                 .unwrap()

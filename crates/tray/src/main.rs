@@ -54,24 +54,39 @@ fn setup_logging() {
         .init();
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     setup_logging();
     info!("lusby-tray starting");
-    let conn = Connection::system().await?;
-    let path_str = "/org/lusby/Daemon";
-    let iface = "org.lusby.Daemon";
-    let last_seen: Arc<Mutex<Option<DeviceInfo>>> = Arc::new(Mutex::new(None));
-    let default_ttl = load_config_ttl();
 
     #[cfg(feature = "tray-ui")]
     {
-        ui::start_indicator(
-            last_seen.clone(),
-            default_ttl,
-            tokio::runtime::Handle::current(),
-        )?;
+        return ui::start_with_gtk();
     }
+
+    #[cfg(not(feature = "tray-ui"))]
+    {
+        run_headless()
+    }
+}
+
+pub async fn run_dbus_listener(
+    last_seen: Arc<Mutex<Option<DeviceInfo>>>,
+    default_ttl: u32,
+) -> Result<()> {
+    let conn = Connection::system().await?;
+    let path_str = "/org/lusby/Daemon";
+    let iface = "org.lusby.Daemon";
+
+    // Subscribe to signals from the daemon using D-Bus AddMatch
+    let match_rule = format!("type='signal',path='{}',interface='{}'", path_str, iface);
+    let bus_proxy = zbus::Proxy::new(
+        &conn,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+    )
+    .await?;
+    bus_proxy.call::<_, _, ()>("AddMatch", &(match_rule,)).await?;
 
     let mut stream = zbus::MessageStream::from(&conn);
     while let Some(Ok(msg)) = stream.next().await {
@@ -108,12 +123,13 @@ async fn main() -> Result<()> {
                                     ))
                                     .icon("security-high")
                                     .action(
-                                        "approve",
+                                        "approve_temp",
                                         &format!(
                                             "Approve for {} minutes",
                                             (default_ttl / 60).max(1)
                                         ),
                                     )
+                                    .action("approve_perm", "Approve indefinitely")
                                     .action("revoke", "Revoke device");
 
                                 if let Ok(handle) = notif.show() {
@@ -122,55 +138,97 @@ async fn main() -> Result<()> {
                                     let ttl = default_ttl;
                                     std::thread::spawn(move || {
                                         handle.wait_for_action(|action| {
-                                            if action == "approve" {
-                                                let uid = unsafe { geteuid() } as u32;
-                                                let ttl: u32 = ttl;
-                                                // Use a small runtime for this one-off call
-                                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                                rt.block_on(async move {
-                                                    if let Ok(conn) =
-                                                        zbus::Connection::system().await
-                                                    {
-                                                        if let Ok(proxy) = zbus::Proxy::new(
-                                                            &conn,
-                                                            "org.lusby.Daemon",
-                                                            "/org/lusby/Daemon",
-                                                            "org.lusby.Daemon",
-                                                        )
-                                                        .await
+                                            match action {
+                                                "approve_temp" => {
+                                                    let uid = unsafe { geteuid() } as u32;
+                                                    let ttl: u32 = ttl;
+                                                    let dev_id = device_id.clone();
+                                                    // Use a small runtime for this one-off call
+                                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                                    rt.block_on(async move {
+                                                        if let Ok(conn) =
+                                                            zbus::Connection::system().await
                                                         {
-                                                            let _ = proxy
-                                                                .call(
-                                                                    "request_ephemeral_allow",
-                                                                    &(device_id, ttl, uid),
-                                                                )
-                                                                .await
-                                                                as zbus::Result<bool>;
+                                                            if let Ok(proxy) = zbus::Proxy::new(
+                                                                &conn,
+                                                                "org.lusby.Daemon",
+                                                                "/org/lusby/Daemon",
+                                                                "org.lusby.Daemon",
+                                                            )
+                                                            .await
+                                                            {
+                                                                let result: zbus::Result<bool> = proxy
+                                                                    .call(
+                                                                        "request_ephemeral_allow",
+                                                                        &(dev_id, ttl, uid),
+                                                                    )
+                                                                    .await;
+                                                                match result {
+                                                                    Ok(_) => println!("Temporary approval granted"),
+                                                                    Err(e) => eprintln!("Failed to approve device temporarily: {}", e),
+                                                                }
+                                                            }
                                                         }
-                                                    }
-                                                });
-                                            } else if action == "revoke" {
-                                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                                let dev = device_id.clone();
-                                                rt.block_on(async move {
-                                                    if let Ok(conn) =
-                                                        zbus::Connection::system().await
-                                                    {
-                                                        if let Ok(proxy) = zbus::Proxy::new(
-                                                            &conn,
-                                                            "org.lusby.Daemon",
-                                                            "/org/lusby/Daemon",
-                                                            "org.lusby.Daemon",
-                                                        )
-                                                        .await
+                                                    });
+                                                }
+                                                "approve_perm" => {
+                                                    let uid = unsafe { geteuid() } as u32;
+                                                    let dev_id = device_id.clone();
+                                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                                    rt.block_on(async move {
+                                                        if let Ok(conn) =
+                                                            zbus::Connection::system().await
                                                         {
-                                                            let res: zbus::Result<bool> = proxy
-                                                                .call("revoke_device", &(dev))
-                                                                .await;
-                                                            let _ = res;
+                                                            if let Ok(proxy) = zbus::Proxy::new(
+                                                                &conn,
+                                                                "org.lusby.Daemon",
+                                                                "/org/lusby/Daemon",
+                                                                "org.lusby.Daemon",
+                                                            )
+                                                            .await
+                                                            {
+                                                                // Use TTL=0 for indefinite approval
+                                                                let result: zbus::Result<bool> = proxy
+                                                                    .call(
+                                                                        "request_ephemeral_allow",
+                                                                        &(dev_id, 0u32, uid),
+                                                                    )
+                                                                    .await;
+                                                                match result {
+                                                                    Ok(_) => println!("Indefinite approval granted"),
+                                                                    Err(e) => eprintln!("Failed to approve device indefinitely: {}", e),
+                                                                }
+                                                            }
                                                         }
-                                                    }
-                                                });
+                                                    });
+                                                }
+                                                "revoke" => {
+                                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                                    let dev = device_id.clone();
+                                                    rt.block_on(async move {
+                                                        if let Ok(conn) =
+                                                            zbus::Connection::system().await
+                                                        {
+                                                            if let Ok(proxy) = zbus::Proxy::new(
+                                                                &conn,
+                                                                "org.lusby.Daemon",
+                                                                "/org/lusby/Daemon",
+                                                                "org.lusby.Daemon",
+                                                            )
+                                                            .await
+                                                            {
+                                                                let result: zbus::Result<bool> = proxy
+                                                                    .call("revoke_device", &(dev))
+                                                                    .await;
+                                                                match result {
+                                                                    Ok(_) => println!("Device revoked"),
+                                                                    Err(e) => eprintln!("Failed to revoke device: {}", e),
+                                                                }
+                                                            }
+                                                        }
+                                                    });
+                                                }
+                                                _ => eprintln!("Unknown action: {}", action),
                                             }
                                         });
                                     });
@@ -196,4 +254,11 @@ async fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn run_headless() -> Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+    let last_seen = Arc::new(Mutex::new(None));
+    let default_ttl = load_config_ttl();
+    rt.block_on(run_dbus_listener(last_seen, default_ttl))
 }

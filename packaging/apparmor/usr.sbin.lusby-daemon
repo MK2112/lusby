@@ -1,9 +1,8 @@
 # AppArmor profile for lusby-daemon
 #include <tunables/global>
 
-profile /usr/sbin/lusby-daemon {
+profile /usr/sbin/lusby-daemon flags=(complain) {
   include <abstractions/base>
-  include <abstractions/dbus-system>
 
   # Binary execution
   /usr/sbin/lusby-daemon rmix,
@@ -27,8 +26,8 @@ profile /usr/sbin/lusby-daemon {
   /sys/fs/cgroup/systemd/system.slice/lusby-daemon.service/cgroup.procs rw,
 
   # USB device information (for listing devices)
-  @{SYS}/bus/usb/** r,
-  @{SYS}/class/usb/** r,
+  /sys/bus/usb/** r,
+  /sys/class/usb/** r,
   @{PROC}/@{pid}/cmdline r,
   @{PROC}/@{pid}/fd/ r,
 

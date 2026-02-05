@@ -27,7 +27,11 @@ confirm() {
   local prompt="$1"
   local response
   read -p "$(echo -e ${YELLOW})$prompt (yes/no)${NC} " response
-  [[ "$response" =~ ^[Yy][Ee][Ss]$ ]]
+  if [[ "$response" =~ ^[Yy][Ee][Ss]$ ]]; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 # Main script
@@ -141,11 +145,20 @@ main() {
 
   section "Step 8: Remove Desktop Autostart"
   log "Removing autostart entry..."
-  if [ -f ~/.config/autostart/lusby-tray.desktop ]; then
-    rm -f ~/.config/autostart/lusby-tray.desktop
-    ok "Autostart entry removed"
-  else
-    warn "Autostart entry not found (or already removed)"
+  # Remove from all user home directories
+  for user_home in /home/*; do
+    if [ -d "$user_home" ]; then
+      autostart_file="$user_home/.config/autostart/lusby-tray.desktop"
+      if [ -f "$autostart_file" ]; then
+        rm -f "$autostart_file"
+        ok "Removed autostart entry from $(basename $user_home)"
+      fi
+    fi
+  done
+  # Also check root user
+  if [ -f /root/.config/autostart/lusby-tray.desktop ]; then
+    rm -f /root/.config/autostart/lusby-tray.desktop
+    ok "Removed autostart entry from root"
   fi
 
   section "Step 9: Remove AppArmor Profile"
@@ -169,6 +182,36 @@ main() {
     ok "PolicyKit action removed"
   else
     warn "PolicyKit action not found"
+  fi
+
+  section "Step 10a: Remove udev Rule"
+  log "Removing udev rule..."
+  if [ -f /etc/udev/rules.d/80-lusby.rules ]; then
+    rm -f /etc/udev/rules.d/80-lusby.rules
+    ok "udev rule removed"
+    log "Reloading udev..."
+    udevadm control --reload
+    udevadm trigger
+    ok "udev reloaded"
+  else
+    warn "udev rule not found"
+  fi
+
+  section "Step 10b: Remove D-BUS Configuration"
+  log "Removing D-BUS service file..."
+  if [ -f /usr/share/dbus-1/system-services/org.lusby.Daemon.service ]; then
+    rm -f /usr/share/dbus-1/system-services/org.lusby.Daemon.service
+    ok "D-BUS service file removed"
+  else
+    warn "D-BUS service file not found"
+  fi
+
+  log "Removing D-BUS config..."
+  if [ -f /etc/dbus-1/system.d/org.lusby.Daemon.conf ]; then
+    rm -f /etc/dbus-1/system.d/org.lusby.Daemon.conf
+    ok "D-BUS config removed"
+  else
+    warn "D-BUS config not found"
   fi
 
   section "Step 11: Final Cleanup"
