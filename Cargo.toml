@@ -5,6 +5,7 @@ members = [
     "crates/cli",
     "crates/tray",
     "crates/backend-usbguard",
+    "crates/backend-mock",
 ]
 resolver = "2"
 

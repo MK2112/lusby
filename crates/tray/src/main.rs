@@ -9,37 +9,8 @@ use libc::geteuid;
 use lusby_common::fingerprint::short_fingerprint;
 use lusby_common::types::DeviceInfo;
 use notify_rust::Notification;
-use serde::Deserialize;
-
-#[derive(Debug, Deserialize)]
-struct ConfigPolicy {
-    #[serde(default = "default_ttl")]
-    default_ttl_secs: u32,
-}
-impl Default for ConfigPolicy {
-    fn default() -> Self {
-        Self {
-            default_ttl_secs: default_ttl(),
-        }
-    }
-}
-#[derive(Debug, Deserialize)]
-struct Config {
-    #[serde(default)]
-    policy: ConfigPolicy,
-}
-fn default_ttl() -> u32 {
-    300
-}
-
 fn load_config_ttl() -> u32 {
-    let path = "/etc/lusby/config.toml";
-    if let Ok(text) = std::fs::read_to_string(path) {
-        if let Ok(cfg) = toml::from_str::<Config>(&text) {
-            return cfg.policy.default_ttl_secs;
-        }
-    }
-    default_ttl()
+    lusby_tray::load_config_ttl()
 }
 
 fn setup_logging() {
@@ -60,7 +31,7 @@ fn main() -> Result<()> {
 
     #[cfg(feature = "tray-ui")]
     {
-        return ui::start_with_gtk();
+        ui::start_with_gtk()
     }
 
     #[cfg(not(feature = "tray-ui"))]
@@ -256,6 +227,7 @@ pub async fn run_dbus_listener(
     Ok(())
 }
 
+#[cfg(not(feature = "tray-ui"))]
 fn run_headless() -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     let last_seen = Arc::new(Mutex::new(None));

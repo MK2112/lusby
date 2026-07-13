@@ -38,7 +38,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
             .and_then(|b| b.match_subsystem("usb"))
             .and_then(|b| b.listen())
         {
-            Ok(mut s) => {
+            Ok(s) => {
                 // Make socket blocking for iterator
                 use std::os::unix::io::AsRawFd;
                 let fd = s.as_raw_fd();

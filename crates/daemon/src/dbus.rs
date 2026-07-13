@@ -109,10 +109,14 @@ fn generate_rules_from_baseline(b: &Baseline) -> String {
         if let Some(serial) = &d.serial {
             // Sanitize serial: reject control chars including newlines
             let sanitized_serial = sanitize_rule_string(serial);
+            // Must escape backslash BEFORE quote to prevent serial ending with \
+            // from escaping the closing quote delimiter
+            let escaped_serial = sanitized_serial
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"");
             out.push_str(&format!(
                 "allow id {} serial \"{}\"\n",
-                id,
-                sanitized_serial.replace('"', "\\\"")
+                id, escaped_serial
             ));
         } else {
             out.push_str(&format!("allow id {}\n", id));

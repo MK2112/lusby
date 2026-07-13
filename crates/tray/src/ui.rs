@@ -7,7 +7,7 @@ use libappindicator::{AppIndicator, AppIndicatorStatus};
 use libc::geteuid;
 use lusby_common::types::DeviceInfo;
 use std::sync::{Arc, Mutex};
-use tokio::runtime::Handle;
+
 
 // Minimal GTK/libappindicator system tray with approval actions.
 // Keeps idle footprint low by avoiding polling; UI updates are user-driven.

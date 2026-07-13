@@ -75,6 +75,19 @@ impl UsbguardBackend {
         }
     }
 
+    /// Extract the policy word ("allow" or "block") from a usbguard list-devices line
+    fn extract_policy(line: &str) -> &str {
+        // Lines look like: "0: allow id 1d6b:0002 ..."
+        // or "1: block id 046d:c534 ..."
+        if let Some(colon_space) = line.find(": ") {
+            let after = &line[colon_space + 2..];
+            if let Some(space) = after.find(' ') {
+                return &after[..space];
+            }
+        }
+        ""
+    }
+
     fn parse_list_devices(output: &str) -> Vec<DeviceInfo> {
         // Very basic parser for `usbguard list-devices` textual output.
         // Example lines (format can vary):
@@ -130,6 +143,9 @@ impl UsbguardBackend {
                 ""
             };
 
+            // Determine policy from line: format is "<id>: <policy> id ..."
+            let allowed = Self::extract_policy(line) == "allow";
+
             if !vendor.is_empty() && !product.is_empty() {
                 // fingerprint unknown here; leave empty; daemon can compute if needed
                 devices.push(DeviceInfo {
@@ -139,8 +155,8 @@ impl UsbguardBackend {
                     serial,
                     fingerprint: String::new(),
                     device_type: dtype.to_string(),
-                    allowed: line.starts_with("allow"),
-                    persistent: line.contains("allow "),
+                    allowed,
+                    persistent: allowed,
                 });
             }
         }
