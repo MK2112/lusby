@@ -48,7 +48,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                     libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
                 }
                 s
-            },
+            }
             Err(e) => {
                 eprintln!("Failed to set up udev monitor: {}", e);
                 return;

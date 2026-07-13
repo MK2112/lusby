@@ -8,7 +8,6 @@ use libc::geteuid;
 use lusby_common::types::DeviceInfo;
 use std::sync::{Arc, Mutex};
 
-
 // Minimal GTK/libappindicator system tray with approval actions.
 // Keeps idle footprint low by avoiding polling; UI updates are user-driven.
 
@@ -18,22 +17,19 @@ pub fn start_with_gtk() -> Result<()> {
     let last_seen: Arc<Mutex<Option<DeviceInfo>>> = Arc::new(Mutex::new(None));
     let default_ttl = crate::load_config_ttl();
     let last_seen_clone = last_seen.clone();
-    
+
     // Spawn async D-Bus listener in a background thread
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("Failed to create runtime");
         let _ = rt.block_on(crate::run_dbus_listener(last_seen_clone, default_ttl));
     });
-    
+
     // Start the indicator
     start_indicator(last_seen, default_ttl)
 }
 
 #[cfg(feature = "tray-ui")]
-fn start_indicator(
-    last_seen: Arc<Mutex<Option<DeviceInfo>>>,
-    default_ttl_secs: u32,
-) -> Result<()> {
+fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>, default_ttl_secs: u32) -> Result<()> {
     if !gtk::is_initialized_main_thread() {
         gtk::init()?;
     }

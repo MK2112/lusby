@@ -57,7 +57,9 @@ pub async fn run_dbus_listener(
         "org.freedesktop.DBus",
     )
     .await?;
-    bus_proxy.call::<_, _, ()>("AddMatch", &(match_rule,)).await?;
+    bus_proxy
+        .call::<_, _, ()>("AddMatch", &(match_rule,))
+        .await?;
 
     let mut stream = zbus::MessageStream::from(&conn);
     while let Some(Ok(msg)) = stream.next().await {
