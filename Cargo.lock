@@ -1342,7 +1342,6 @@ dependencies = [
  "lusby-backend-mock",
  "lusby-backend-usbguard",
  "lusby-common",
- "netlink-sys",
  "proptest",
  "serde",
  "serde_json",
@@ -1462,17 +1461,6 @@ dependencies = [
  "libc",
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "netlink-sys"
-version = "0.8.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd6c30ed10fa69cc491d491b85cc971f6bdeb8e7367b7cde2ee6cc878d583fae"
-dependencies = [
- "bytes",
- "libc",
- "log",
 ]
 
 [[package]]
