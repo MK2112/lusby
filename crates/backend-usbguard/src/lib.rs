@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 use lusby_common::backend::UsbBackend;
 use lusby_common::types::DeviceInfo;
-use std::fs::{self, File};
+use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 use std::str;
 use thiserror::Error;
@@ -45,6 +44,23 @@ mod tests {
         let devices = UsbguardBackend::parse_list_devices(sample);
         let dev = devices.first().unwrap();
         assert_eq!(dev.serial, "AB\"C");
+    }
+
+    #[test]
+    fn parse_uses_numeric_ids_and_normalizes_case() {
+        let sample = "7: allow id 046D:C534 serial \"X\" name \"T\"\n";
+        let devices = UsbguardBackend::parse_list_devices(sample);
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].id, "7");
+        assert_eq!(devices[0].vendor_id, "0x046d");
+        assert_eq!(devices[0].product_id, "0xc534");
+        assert!(!devices[0].persistent);
+    }
+
+    #[test]
+    fn parse_skips_malformed_ids() {
+        let sample = "x: allow id ZZZZ:1234 serial \"X\" name \"T\"\n";
+        assert!(UsbguardBackend::parse_list_devices(sample).is_empty());
     }
 
     use proptest::prelude::*;
@@ -99,7 +115,16 @@ impl UsbguardBackend {
             if line.is_empty() {
                 continue;
             }
+            // Numeric rule id is the prefix before the first ':' ("3: allow ...").
+            // Previously this used the vid:pid pair as `id`, which never matches
+            // the numeric id `usbguard allow-device`/`reject-device` expect.
             let mut id = String::new();
+            if let Some(colon) = line.find(':') {
+                let prefix = line[..colon].trim();
+                if !prefix.is_empty() && prefix.chars().all(|c| c.is_ascii_digit()) {
+                    id = prefix.to_string();
+                }
+            }
             let mut vendor = String::new();
             let mut product = String::new();
             let mut serial = String::new();
@@ -109,9 +134,24 @@ impl UsbguardBackend {
                 if let Some(space) = rest.find(' ') {
                     let pair = &rest[..space];
                     if let Some(colon) = pair.find(':') {
-                        vendor = format!("0x{}", &pair[..colon]);
-                        product = format!("0x{}", &pair[colon + 1..]);
-                        id = pair.to_string();
+                        let raw_vid = &pair[..colon];
+                        let raw_pid = &pair[colon + 1..];
+                        // Normalize for stable matching (daemon compares case-insensitively,
+                        // but canonical lowercase avoids duplicate representations).
+                        if !raw_vid.is_empty()
+                            && !raw_pid.is_empty()
+                            && raw_vid.len() <= 8
+                            && raw_pid.len() <= 8
+                            && raw_vid.chars().all(|c| c.is_ascii_hexdigit())
+                            && raw_pid.chars().all(|c| c.is_ascii_hexdigit())
+                        {
+                            vendor = format!("0x{}", raw_vid.to_lowercase());
+                            product = format!("0x{}", raw_pid.to_lowercase());
+                            if id.is_empty() {
+                                // Fall back to the pair only when no numeric id exists.
+                                id = pair.to_lowercase();
+                            }
+                        }
                     }
                 }
             }
@@ -146,8 +186,10 @@ impl UsbguardBackend {
             // Determine policy from line: format is "<id>: <policy> id ..."
             let allowed = Self::extract_policy(line) == "allow";
 
-            if !vendor.is_empty() && !product.is_empty() {
-                // fingerprint unknown here; leave empty; daemon can compute if needed
+            if !vendor.is_empty() && !product.is_empty() && !id.is_empty() {
+                // fingerprint unknown here; leave empty; daemon can compute if needed.
+                // persistent is unknown from list-devices output alone (an "allow"
+                // line may be ephemeral), so never claim persistence here.
                 devices.push(DeviceInfo {
                     id,
                     vendor_id: vendor,
@@ -156,7 +198,7 @@ impl UsbguardBackend {
                     fingerprint: String::new(),
                     device_type: dtype.to_string(),
                     allowed,
-                    persistent: allowed,
+                    persistent: false,
                 });
             }
         }
@@ -166,16 +208,27 @@ impl UsbguardBackend {
     /// Atomically write new rules content to /etc/usbguard/rules.conf and reload usbguard.
     /// On reload failure, restore previous rules.
     pub fn apply_rules_atomically(rules_content: &str) -> Result<(), BackendError> {
+        const MAX_RULES_BYTES: usize = 1024 * 1024;
+        if rules_content.len() > MAX_RULES_BYTES {
+            return Err(BackendError::Cmd("rules content too large".into()));
+        }
         let rules_path = "/etc/usbguard/rules.conf";
         let tmp_path = "/etc/usbguard/rules.conf.tmp";
         let bak_path = "/etc/usbguard/rules.conf.bak";
 
-        // Write tmp file with restrictive perms
+        // Remove a stale tmp file first so `create_new` below is a true
+        // exclusive create (no truncating a pre-existing symlink/plant).
+        let _ = fs::remove_file(tmp_path);
+
+        // Write tmp file with restrictive perms applied atomically at creation
+        // (File::create + set_permissions leaves a umask-dependent window).
         {
-            let mut f = File::create(tmp_path)
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut opts = fs::OpenOptions::new();
+            opts.write(true).create_new(true).mode(0o600);
+            let mut f = opts
+                .open(tmp_path)
                 .map_err(|e| BackendError::Cmd(format!("create tmp: {e}")))?;
-            f.set_permissions(fs::Permissions::from_mode(0o600))
-                .map_err(|e| BackendError::Cmd(format!("chmod tmp: {e}")))?;
             f.write_all(rules_content.as_bytes())
                 .map_err(|e| BackendError::Cmd(format!("write tmp: {e}")))?;
             f.sync_all()
@@ -191,15 +244,26 @@ impl UsbguardBackend {
         // Move tmp into place
         fs::rename(tmp_path, rules_path)
             .map_err(|e| BackendError::Cmd(format!("rename rules: {e}")))?;
+        // Ensure the rename is durable.
+        if let Ok(dir) = fs::File::open("/etc/usbguard") {
+            let _ = dir.sync_all();
+        }
 
         // Reload usbguard
         match Self::run_usbguard(&["reload"]) {
             Ok(_) => Ok(()),
             Err(e) => {
-                // Attempt rollback
+                // Attempt rollback (only if a backup exists; otherwise
+                // remove the just-installed broken file is unsafe, so keep
+                // it and surface the error).
                 if fs::metadata(bak_path).is_ok() {
                     let _ = fs::rename(bak_path, rules_path);
+                    if let Ok(dir) = fs::File::open("/etc/usbguard") {
+                        let _ = dir.sync_all();
+                    }
                     let _ = Self::run_usbguard(&["reload"]);
+                } else {
+                    let _ = fs::remove_file(tmp_path);
                 }
                 Err(e)
             }
