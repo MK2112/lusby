@@ -16,7 +16,7 @@ use lusby_common::baseline::Baseline;
 use lusby_common::types::{DeviceInfo, PolicyStatus};
 
 use crate::audit::AuditLogger;
-use crate::polkit::check_manage_authorization;
+use crate::polkit::{check_manage_authorization, sender_uid};
 
 #[derive(Clone)]
 pub struct DaemonState {
@@ -44,7 +44,9 @@ impl DaemonState {
             .cloned()
             .collect();
         for id in ids {
-            let _ = self.backend.revoke(&id).await;
+            // Best effort: resolve composite ids to backend ids first.
+            let target = self.resolve_backend_id(&id).await.unwrap_or(id.clone());
+            let _ = self.backend.revoke(&target).await;
             self.audit.lock().unwrap().log(
                 "auto_revoke",
                 Some(id.clone()),
@@ -56,34 +58,147 @@ impl DaemonState {
     }
 
     pub async fn cleanup_expired_ephemeral(&self) {
-        let expired_ids: Vec<(String, u32)> = {
+        let expired_ids: Vec<String> = {
             let mut inner = self.inner.lock().unwrap();
             let mut expired = Vec::new();
             let now = std::time::Instant::now();
-            inner.ephemeral.retain(|id, expiry| {
-                if now >= *expiry {
-                    expired.push((id.clone(), 0));
-                    false
-                } else {
-                    true
+            inner.ephemeral.retain(|id, expiry| match expiry {
+                // None = indefinite (polkit-gated), never expires here.
+                None => true,
+                Some(t) => {
+                    if now >= *t {
+                        expired.push(id.clone());
+                        false
+                    } else {
+                        true
+                    }
                 }
             });
             expired
         };
 
-        for (id, _) in expired_ids {
+        for id in expired_ids {
             tracing::info!("Ephemeral approval expired for device: {}", id);
-            let devices = self.backend.list_devices().await;
-            if let Some(_dev) = devices.iter().find(|d| d.id == id) {
-                self.audit.lock().unwrap().log(
-                    "ephemeral_expired",
-                    Some(id.clone()),
-                    "auto_revoke_on_expiry",
-                    None,
-                );
-            }
+            // Actually revoke at the backend (previously only logged).
+            let target = self.resolve_backend_id(&id).await.unwrap_or(id.clone());
+            let revoked = self.backend.revoke(&target).await;
+            self.audit.lock().unwrap().log(
+                "ephemeral_expired",
+                Some(id.clone()),
+                if revoked {
+                    "auto_revoke_on_expiry"
+                } else {
+                    "auto_revoke_on_expiry_failed"
+                },
+                None,
+            );
         }
     }
+
+    /// Map a caller-supplied id (backend numeric id or `vid:pid[:serial]`
+    /// composite as emitted for udev events) to a backend device id.
+    async fn resolve_backend_id(&self, device_id: &str) -> Option<String> {
+        let devices = self.backend.list_devices().await;
+        if devices.iter().any(|d| d.id == device_id) {
+            return Some(device_id.to_string());
+        }
+        let parts: Vec<&str> = device_id.split(':').collect();
+        if parts.len() == 2 || parts.len() == 3 {
+            let want_vid = normalize_hex_id(parts[0]);
+            let want_pid = normalize_hex_id(parts[1]);
+            let want_serial = if parts.len() == 3 {
+                Some(parts[2].to_string())
+            } else {
+                None
+            };
+            for d in &devices {
+                if normalize_hex_id(&d.vendor_id) == want_vid
+                    && normalize_hex_id(&d.product_id) == want_pid
+                    && want_serial.as_ref().map(|s| s == &d.serial).unwrap_or(true)
+                {
+                    return Some(d.id.clone());
+                }
+            }
+        }
+        None
+    }
+}
+
+/// Device ids travel to `usbguard allow-device` as a single argv element
+/// (no shell), but still reject controls/whitespace/shell metachars so
+/// crafted ids cannot pollute logs or surprise the backend.
+fn is_valid_device_id(device_id: &str) -> bool {
+    !device_id.is_empty()
+        && device_id.len() <= 64
+        && device_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':' | '.' | '/'))
+}
+
+fn normalize_hex_id(s: &str) -> String {
+    s.trim_start_matches("0x")
+        .trim_start_matches("0X")
+        .to_lowercase()
+}
+
+fn is_hex4(s: &str) -> bool {
+    let t = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
+    t.len() == 4 && t.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Fail-closed validation for signed baselines before rule generation.
+fn validate_baseline(b: &Baseline) -> Result<(), String> {
+    if b.version != 1 {
+        return Err(format!("unsupported baseline version {}", b.version));
+    }
+    if b.devices.is_empty() {
+        return Err("baseline contains no devices".into());
+    }
+    if b.devices.len() > 1024 {
+        return Err("baseline device limit exceeded".into());
+    }
+    if b.created_by.is_empty() || b.created_by.len() > 256 {
+        return Err("invalid created_by".into());
+    }
+    for (i, d) in b.devices.iter().enumerate() {
+        if !is_hex4(&d.vendor_id) {
+            return Err(format!("device {} has invalid vendor_id", i));
+        }
+        if !is_hex4(&d.product_id) {
+            return Err(format!("device {} has invalid product_id", i));
+        }
+        if let Some(s) = &d.serial {
+            if s.len() > 128 || s.chars().any(|c| c.is_control()) {
+                return Err(format!("device {} has invalid serial", i));
+            }
+        }
+        if d.device_type.len() > 64 {
+            return Err(format!("device {} has invalid device_type", i));
+        }
+        if let Some(c) = &d.comment {
+            if c.len() > 512 {
+                return Err(format!("device {} has invalid comment", i));
+            }
+        }
+        if d.descriptors_hash.len() > 256 {
+            return Err(format!("device {} has invalid descriptors_hash", i));
+        }
+    }
+    Ok(())
+}
+
+/// Key file names must stay flat inside the trusted dir (no traversal).
+fn is_valid_key_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        && !name.contains("..")
+        && !name.contains('/')
 }
 
 fn sanitize_rule_string(s: &str) -> String {
@@ -123,7 +238,8 @@ fn generate_rules_from_baseline(b: &Baseline) -> String {
 #[derive(Default)]
 struct StateInner {
     deny_unknown: bool,
-    ephemeral: HashMap<String, Instant>,
+    /// None expiry = indefinite approval (polkit-gated at grant time).
+    ephemeral: HashMap<String, Option<Instant>>,
 }
 
 impl DaemonState {
@@ -163,34 +279,60 @@ impl DaemonState {
         self.backend.list_devices().await
     }
 
-    async fn request_ephemeral_allow(&self, device_id: &str, ttl: u32, requester_uid: u32) -> bool {
+    async fn request_ephemeral_allow(
+        &self,
+        device_id: &str,
+        ttl: u32,
+        requester_uid: u32,
+        #[zbus(connection)] conn: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> bool {
+        // Never trust the client-supplied uid for audit; derive it from the bus.
+        let real_uid = sender_uid(conn, &header).await.unwrap_or(requester_uid);
         // Eingabevalidierung
-        let valid_id: bool = !device_id.is_empty() && device_id.len() <= 64 && device_id.is_ascii();
-        // TTL: 0 = indefinite, 1-86400 = temporary (1 second to 1 day)
+        let valid_id: bool = is_valid_device_id(device_id);
+        // TTL: 0 = indefinite (privileged), 1-86400 = temporary (1 second to 1 day)
         let valid_ttl: bool = ttl == 0 || (1..=86400).contains(&ttl);
-        let valid_uid: bool = requester_uid > 0;
-        if !valid_id || !valid_ttl || !valid_uid {
+        if !valid_id || !valid_ttl {
             self.audit.lock().unwrap().log(
                 "ephemeral_allow_reject",
                 Some(device_id.to_string()),
                 "invalid_input",
-                Some(requester_uid),
+                Some(real_uid),
             );
             return false;
         }
-        let ok: bool = self.backend.allow_ephemeral(device_id, ttl).await;
+        // Indefinite approvals bypass expiry + baseline signing, so they
+        // require the same polkit authorization as persistent changes.
+        if ttl == 0
+            && !check_manage_authorization(conn, &header)
+                .await
+                .unwrap_or(false)
+        {
+            self.audit.lock().unwrap().log(
+                "ephemeral_allow_reject",
+                Some(device_id.to_string()),
+                "polkit_denied_indefinite",
+                Some(real_uid),
+            );
+            return false;
+        }
+        let target = self
+            .resolve_backend_id(device_id)
+            .await
+            .unwrap_or(device_id.to_string());
+        let ok: bool = self.backend.allow_ephemeral(&target, ttl).await;
         self.audit.lock().unwrap().log(
             "ephemeral_allow",
             Some(device_id.to_string()),
             if ok { "allow_ok" } else { "allow_fail" },
-            Some(requester_uid),
+            Some(real_uid),
         );
         if ok {
-            let expiry: Instant = if ttl == 0 {
-                // Indefinite: set expiry to a very far future time (100 years)
-                Instant::now() + Duration::from_secs(3155760000)
+            let expiry: Option<Instant> = if ttl == 0 {
+                None
             } else {
-                Instant::now() + Duration::from_secs(ttl as u64)
+                Some(Instant::now() + Duration::from_secs(ttl as u64))
             };
             self.inner
                 .lock()
@@ -208,6 +350,7 @@ impl DaemonState {
         #[zbus(connection)] conn: &Connection,
         #[zbus(header)] header: Header<'_>,
     ) -> bool {
+        let real_uid = sender_uid(conn, &header).await;
         // Polkit authorization
         if !check_manage_authorization(conn, &header)
             .await
@@ -216,7 +359,16 @@ impl DaemonState {
             self.audit
                 .lock()
                 .unwrap()
-                .log("policy_denied", None, "polkit_denied", None);
+                .log("policy_denied", None, "polkit_denied", real_uid);
+            return false;
+        }
+        if _signer_id.len() > 128 {
+            self.audit.lock().unwrap().log(
+                "security",
+                None,
+                "baseline_signer_id_invalid",
+                real_uid,
+            );
             return false;
         }
         // Load baseline JSON, verify against any trusted key, then copy into baselines_dir
@@ -229,9 +381,33 @@ impl DaemonState {
                 "security",
                 None,
                 "baseline_path_traversal_attempt",
-                None,
+                real_uid,
             );
             return false;
+        }
+        // Bound file size before reading (fail-closed against /dev/zero etc.).
+        const MAX_BASELINE_BYTES: u64 = 1024 * 1024;
+        match fs::metadata(&path) {
+            Ok(md) => {
+                if !md.is_file() || md.len() > MAX_BASELINE_BYTES {
+                    self.audit.lock().unwrap().log(
+                        "security",
+                        None,
+                        "baseline_file_rejected",
+                        real_uid,
+                    );
+                    return false;
+                }
+            }
+            Err(e) => {
+                self.audit.lock().unwrap().log(
+                    "security",
+                    None,
+                    &format!("baseline_read_failed: {}", e),
+                    real_uid,
+                );
+                return false;
+            }
         }
         let data = match fs::read(&path) {
             Ok(d) => d,
@@ -240,7 +416,7 @@ impl DaemonState {
                     "security",
                     None,
                     &format!("baseline_read_failed: {}", e),
-                    None,
+                    real_uid,
                 );
                 return false;
             }
@@ -252,11 +428,20 @@ impl DaemonState {
                     "security",
                     None,
                     &format!("baseline_parse_failed: {} (path: {:?})", e, path),
-                    None,
+                    real_uid,
                 );
                 return false;
             }
         };
+        if let Err(e) = validate_baseline(&baseline) {
+            self.audit.lock().unwrap().log(
+                "security",
+                None,
+                &format!("baseline_validation_failed: {}", e),
+                real_uid,
+            );
+            return false;
+        }
         // Load trusted keys
         let mut verified = false;
         if let Ok(entries) = fs::read_dir(&self.trusted_pubkeys_dir) {
@@ -277,12 +462,20 @@ impl DaemonState {
             }
         }
         if !verified {
+            self.audit.lock().unwrap().log(
+                "security",
+                None,
+                "baseline_signature_unverified",
+                real_uid,
+            );
             return false;
         }
-        // Copy file into baselines_dir with a timestamped name
+        // Copy file into baselines_dir with a unique timestamped name
+        // (nanoseconds + pid avoids same-second collisions overwriting).
         let filename = format!(
-            "baseline_{}.json",
-            chrono::Utc::now().format("%Y%m%dT%H%M%SZ")
+            "baseline_{}_{}.json",
+            chrono::Utc::now().format("%Y%m%dT%H%M%S%.9fZ"),
+            std::process::id()
         );
         let dest = self.baselines_dir.join(filename);
         if let Some(dir) = dest.parent() {
@@ -291,9 +484,14 @@ impl DaemonState {
                     "security",
                     None,
                     &format!("baseline_dir_create_failed: {}", e),
-                    None,
+                    real_uid,
                 );
                 return false;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
             }
         }
         // (Entfernt: doppelter Schreibvorgang)
@@ -301,8 +499,7 @@ impl DaemonState {
         use std::os::unix::fs::OpenOptionsExt;
         let mut file = match fs::OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(&dest)
         {
@@ -312,12 +509,12 @@ impl DaemonState {
                     "security",
                     None,
                     &format!("baseline_file_create_failed: {}", e),
-                    None,
+                    real_uid,
                 );
                 return false;
             }
         };
-        let ok = file.write_all(&data).is_ok();
+        let ok = file.write_all(&data).is_ok() && file.sync_all().is_ok();
         self.audit.lock().unwrap().log(
             "persistent_allow",
             None,
@@ -326,7 +523,7 @@ impl DaemonState {
             } else {
                 "baseline_apply_failed"
             },
-            None,
+            real_uid,
         );
         if !ok {
             return false;
@@ -336,46 +533,72 @@ impl DaemonState {
         let rules = generate_rules_from_baseline(&baseline);
         if let Err(e) = UsbguardBackend::apply_rules_atomically(&rules) {
             tracing::error!(error=?e, "failed to apply usbguard rules atomically");
+            self.audit.lock().unwrap().log(
+                "persistent_allow",
+                None,
+                "baseline_rules_apply_failed",
+                real_uid,
+            );
             return false;
         }
         true
     }
 
-    async fn revoke_device(&self, device_id: &str) -> bool {
-        let valid_id = !device_id.is_empty() && device_id.len() <= 64 && device_id.is_ascii();
-        if !valid_id {
+    async fn revoke_device(
+        &self,
+        device_id: &str,
+        #[zbus(connection)] conn: &Connection,
+        #[zbus(header)] header: Header<'_>,
+    ) -> bool {
+        let real_uid = sender_uid(conn, &header).await;
+        if !is_valid_device_id(device_id) {
             self.audit.lock().unwrap().log(
                 "revoke_reject",
                 Some(device_id.to_string()),
                 "invalid_input",
-                None,
+                real_uid,
             );
             return false;
         }
-        let ok = self.backend.revoke(device_id).await;
+        let target = self
+            .resolve_backend_id(device_id)
+            .await
+            .unwrap_or(device_id.to_string());
+        let ok = self.backend.revoke(&target).await;
+        // A manual revoke supersedes any pending ephemeral approval.
+        self.inner.lock().unwrap().ephemeral.remove(device_id);
+        if target != device_id {
+            self.inner.lock().unwrap().ephemeral.remove(&target);
+        }
         self.audit.lock().unwrap().log(
             "revoke",
             Some(device_id.to_string()),
             if ok { "revoke_ok" } else { "revoke_fail" },
-            None,
+            real_uid,
         );
         ok
     }
 
     async fn get_device_info(&self, device_id: &str) -> DeviceInfo {
-        self.backend
-            .get_device(device_id)
-            .await
-            .unwrap_or(DeviceInfo {
-                id: String::new(),
-                vendor_id: String::new(),
-                product_id: String::new(),
-                serial: String::new(),
-                fingerprint: String::new(),
-                device_type: String::new(),
-                allowed: false,
-                persistent: false,
-            })
+        if let Some(dev) = self.backend.get_device(device_id).await {
+            return dev;
+        }
+        // Fall back to composite-id resolution (udev-style ids).
+        if let Some(target) = self.resolve_backend_id(device_id).await {
+            if let Some(dev) = self.backend.get_device(&target).await {
+                return dev;
+            }
+        }
+        DeviceInfo {
+            id: String::new(),
+            vendor_id: String::new(),
+            product_id: String::new(),
+            serial: String::new(),
+            fingerprint: String::new(),
+            device_type: String::new(),
+            allowed: false,
+            persistent: false,
+        }
     }
 
     async fn get_policy_status_string(&self) -> String {
@@ -417,10 +640,26 @@ impl DaemonState {
         #[zbus(connection)] conn: &Connection,
         #[zbus(header)] header: Header<'_>,
     ) -> bool {
+        let real_uid = sender_uid(conn, &header).await;
         if !check_manage_authorization(conn, &header)
             .await
             .unwrap_or(false)
         {
+            self.audit.lock().unwrap().log(
+                "policy_denied",
+                None,
+                "polkit_denied_add_pubkey",
+                real_uid,
+            );
+            return false;
+        }
+        // Flat, traversal-free file name.
+        let stem = name.strip_suffix(".pub").unwrap_or(name);
+        if !is_valid_key_name(stem) || key_bytes_b64.len() > 128 {
+            self.audit
+                .lock()
+                .unwrap()
+                .log("security", None, "add_pubkey_invalid_input", real_uid);
             return false;
         }
         let bytes = match base64::engine::general_purpose::STANDARD.decode(key_bytes_b64) {
@@ -430,29 +669,51 @@ impl DaemonState {
         if bytes.len() != 32 {
             return false;
         }
+        // Reject bytes that are not a valid ed25519 point.
+        if VerifyingKey::from_bytes(&bytes.as_slice().try_into().expect("len checked")).is_err() {
+            self.audit
+                .lock()
+                .unwrap()
+                .log("security", None, "add_pubkey_invalid_key", real_uid);
+            return false;
+        }
         let mut path = self.trusted_pubkeys_dir.clone();
-        let fname = if name.ends_with(".pub") {
-            name.to_string()
-        } else {
-            format!("{}.pub", name)
-        };
-        path.push(fname);
+        path.push(format!("{}.pub", stem));
         if let Some(dir) = path.parent() {
             let _ = fs::create_dir_all(dir);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+            }
         }
-        match fs::OpenOptions::new()
+        use std::os::unix::fs::OpenOptionsExt;
+        let stored = match fs::OpenOptions::new()
             .write(true)
             .create_new(true)
+            .mode(0o600)
             .open(&path)
         {
             Ok(mut f) => {
-                if f.write_all(&bytes).is_err() {
-                    return false;
+                let ok = f.write_all(&bytes).is_ok() && f.sync_all().is_ok();
+                if !ok {
+                    let _ = fs::remove_file(&path);
                 }
-                true
+                ok
             }
             Err(_) => false,
-        }
+        };
+        self.audit.lock().unwrap().log(
+            "trust_store",
+            None,
+            if stored {
+                "pubkey_added"
+            } else {
+                "pubkey_add_failed"
+            },
+            real_uid,
+        );
+        stored
     }
 
     /// Remove a trusted public key by file name
@@ -462,20 +723,43 @@ impl DaemonState {
         #[zbus(connection)] conn: &Connection,
         #[zbus(header)] header: Header<'_>,
     ) -> bool {
+        let real_uid = sender_uid(conn, &header).await;
         if !check_manage_authorization(conn, &header)
             .await
             .unwrap_or(false)
         {
+            self.audit.lock().unwrap().log(
+                "policy_denied",
+                None,
+                "polkit_denied_remove_pubkey",
+                real_uid,
+            );
+            return false;
+        }
+        let stem = name.strip_suffix(".pub").unwrap_or(name);
+        if !is_valid_key_name(stem) {
+            self.audit.lock().unwrap().log(
+                "security",
+                None,
+                "remove_pubkey_invalid_input",
+                real_uid,
+            );
             return false;
         }
         let mut path = self.trusted_pubkeys_dir.clone();
-        let fname = if name.ends_with(".pub") {
-            name.to_string()
-        } else {
-            format!("{}.pub", name)
-        };
-        path.push(fname);
-        fs::remove_file(path).is_ok()
+        path.push(format!("{}.pub", stem));
+        let ok = fs::remove_file(&path).is_ok();
+        self.audit.lock().unwrap().log(
+            "trust_store",
+            None,
+            if ok {
+                "pubkey_removed"
+            } else {
+                "pubkey_remove_failed"
+            },
+            real_uid,
+        );
+        ok
     }
 
     // Signals
@@ -524,6 +808,59 @@ mod tests {
     }
 
     use proptest::prelude::*;
+
+    #[test]
+    fn device_id_validation_rejects_controls_and_shell() {
+        assert!(is_valid_device_id("2"));
+        assert!(is_valid_device_id("0x046d:0xc534:ABC-123"));
+        assert!(is_valid_device_id("/dev/bus/usb/002/003"));
+        assert!(!is_valid_device_id(""));
+        assert!(!is_valid_device_id("a; rm -rf /"));
+        assert!(!is_valid_device_id("a b"));
+        assert!(!is_valid_device_id("a\nb"));
+        assert!(!is_valid_device_id("a\x00b"));
+        assert!(!is_valid_device_id(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn key_name_validation_blocks_traversal() {
+        assert!(is_valid_key_name("mykey"));
+        assert!(is_valid_key_name("my-key_1.2"));
+        assert!(!is_valid_key_name(""));
+        assert!(!is_valid_key_name("../../etc"));
+        assert!(!is_valid_key_name("a/b"));
+        assert!(!is_valid_key_name(".."));
+        assert!(!is_valid_key_name("a;rm"));
+    }
+
+    #[test]
+    fn baseline_validation_rejects_bad_ids() {
+        let good = Baseline {
+            version: 1,
+            created_by: "test".into(),
+            created_at: chrono::Utc::now(),
+            devices: vec![DeviceEntry {
+                vendor_id: "0x1234".into(),
+                product_id: "5678".into(),
+                serial: None,
+                bus_path: None,
+                descriptors_hash: "none".into(),
+                device_type: "hid".into(),
+                comment: None,
+            }],
+            signature: None,
+        };
+        assert!(validate_baseline(&good).is_ok());
+        let mut bad = good.clone();
+        bad.devices[0].vendor_id = "zz; rm".into();
+        assert!(validate_baseline(&bad).is_err());
+        let mut bad_ver = good.clone();
+        bad_ver.version = 99;
+        assert!(validate_baseline(&bad_ver).is_err());
+        let mut empty = good.clone();
+        empty.devices.clear();
+        assert!(validate_baseline(&empty).is_err());
+    }
 
     proptest! {
         #[test]

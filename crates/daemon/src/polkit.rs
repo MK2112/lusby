@@ -4,6 +4,24 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 use zbus::Connection;
 
 // Return true if the sender (from header) is authorized by polkit for org.lusby.manage
+pub async fn sender_uid(conn: &Connection, header: &Header<'_>) -> Option<u32> {
+    let sender = header.sender()?;
+    let dbus_proxy = zbus::Proxy::new(
+        conn,
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+    )
+    .await
+    .ok()?;
+    let uid: u32 = dbus_proxy
+        .call("GetConnectionUnixUser", &(sender.clone()))
+        .await
+        .ok()?;
+    Some(uid)
+}
+
+// Return true if the sender (from header) is authorized by polkit for org.lusby.manage
 pub async fn check_manage_authorization(
     conn: &Connection,
     header: &Header<'_>,
