@@ -17,7 +17,7 @@ udev-monitor = ["dep:udev"]
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "time"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -26,7 +26,6 @@ chrono = { version = "0.4", features = ["serde"] }
 toml = "0.8"
 lusby-backend-usbguard = { path = "../backend-usbguard" }
 udev = { version = "0.8", optional = true }
-netlink-sys = { version = "0.8", optional = true }
 libc = "0.2"
 ed25519-dalek = "2"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }

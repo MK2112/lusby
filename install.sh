@@ -39,12 +39,15 @@ fi
 log "Building Lusby packages..."
 cargo install cargo-deb --locked || true
 
-# Build main workspace
-cargo build --release --workspace --features udev-monitor
+# Build main workspace (default features)
+cargo build --release --workspace
+
+# Rebuild the daemon with the udev monitor (package-specific feature flag)
+cargo build --release -p lusby-daemon --features udev-monitor
 
 # Build and install the tray application with UI support
 log "Building tray application..."
-cargo build --release --features tray-ui -p lusby-tray
+cargo build --release -p lusby-tray --features tray-ui
 sudo cp target/release/lusby-tray /usr/local/bin/
 
 # Build the daemon package
@@ -61,8 +64,12 @@ sudo chmod 755 /usr/local/bin/lusby-tray
 ACTUAL_USER="${SUDO_USER:-$(whoami)}"
 if [ "$ACTUAL_USER" != "root" ]; then
   log "Setting up autostart for user $ACTUAL_USER..."
-  mkdir -p /home/$ACTUAL_USER/.config/autostart
-  cat > /home/$ACTUAL_USER/.config/autostart/lusby-tray.desktop <<EOL
+  ACTUAL_HOME="$(getent passwd "$ACTUAL_USER" | cut -d: -f6)"
+  if [ -z "$ACTUAL_HOME" ]; then
+    ACTUAL_HOME="/home/$ACTUAL_USER"
+  fi
+  mkdir -p "$ACTUAL_HOME/.config/autostart"
+  cat > "$ACTUAL_HOME/.config/autostart/lusby-tray.desktop" <<EOL
 [Desktop Entry]
 Type=Application
 Name=Lusby Tray
@@ -73,8 +80,8 @@ StartupNotify=false
 Terminal=false
 Comment=USB device management tray for Lusby
 EOL
-  chown $ACTUAL_USER:$ACTUAL_USER /home/$ACTUAL_USER/.config/autostart/lusby-tray.desktop
-  chmod 644 /home/$ACTUAL_USER/.config/autostart/lusby-tray.desktop
+  chown "$ACTUAL_USER:$ACTUAL_USER" "$ACTUAL_HOME/.config/autostart/lusby-tray.desktop"
+  chmod 644 "$ACTUAL_HOME/.config/autostart/lusby-tray.desktop"
 else
   warn "Running as root; cannot determine regular user for autostart setup"
 fi
@@ -87,7 +94,11 @@ sudo mkdir -p /etc/lusby/{baselines,trusted_pubkeys} \
 
 sudo chown -R root:root /etc/lusby /var/lib/lusby /var/log/lusby
 sudo chmod 700 /etc/lusby /etc/lusby/baselines /etc/lusby/trusted_pubkeys /var/lib/lusby /var/log/lusby
-sudo chmod 600 /etc/lusby/config.toml
+if [ -f /etc/lusby/config.toml ]; then
+  sudo chmod 600 /etc/lusby/config.toml
+else
+  warn "/etc/lusby/config.toml missing (package may not have installed it)"
+fi
 
 sudo touch /var/log/lusby/audit.log
 sudo chmod 600 /var/log/lusby/audit.log
@@ -111,6 +122,17 @@ if command -v apparmor_parser &>/dev/null && command -v aa-enforce &>/dev/null; 
 else
   warn "AppArmor tools not available, skipping AppArmor profile loading"
 fi
+
+# Ensure D-Bus service file exists (before smoke tests that need the bus name)
+log "Setting up D-Bus service file..."
+sudo tee /usr/share/dbus-1/system-services/org.lusby.Daemon.service > /dev/null << 'EOF'
+[D-BUS Service]
+Name=org.lusby.Daemon
+Exec=/usr/sbin/lusby-daemon
+User=root
+SystemService=true
+EOF
+ok "D-Bus service file created"
 
 log "Enabling Lusby daemon..."
 sudo systemctl enable --now lusby-daemon || true
@@ -194,17 +216,6 @@ if sudo busctl --system call org.lusby.Daemon /org/lusby/Daemon org.lusby.Daemon
 else
   warn "D-Bus call failed: GetPolicyStatus"
 fi
-
-# Ensure D-Bus service file exists
-log "Setting up D-Bus service file..."
-sudo tee /usr/share/dbus-1/system-services/org.lusby.Daemon.service > /dev/null << 'EOF'
-[D-BUS Service]
-Name=org.lusby.Daemon
-Exec=/usr/sbin/lusby-daemon
-User=root
-SystemService=true
-EOF
-ok "D-Bus service file created"
 
 log "Installation complete!"
 echo "Check status with: systemctl status lusby-daemon"

@@ -26,7 +26,7 @@ fi
 confirm() {
   local prompt="$1"
   local response
-  read -p "$(echo -e ${YELLOW})$prompt (yes/no)${NC} " response
+  read -p "$(echo -e "${YELLOW}")$prompt (yes/no)$(echo -e "${NC}") " response
   if [[ "$response" =~ ^[Yy][Ee][Ss]$ ]]; then
     return 0
   else
@@ -151,7 +151,7 @@ main() {
       autostart_file="$user_home/.config/autostart/lusby-tray.desktop"
       if [ -f "$autostart_file" ]; then
         rm -f "$autostart_file"
-        ok "Removed autostart entry from $(basename $user_home)"
+        ok "Removed autostart entry from $(basename "$user_home")"
       fi
     fi
   done
@@ -164,13 +164,13 @@ main() {
   section "Step 9: Remove AppArmor Profile"
   log "Removing AppArmor profile..."
   if [ -f /etc/apparmor.d/usr.sbin.lusby-daemon ]; then
+    if command -v apparmor_parser &>/dev/null; then
+      log "Unloading AppArmor profile before removal..."
+      apparmor_parser -R /etc/apparmor.d/usr.sbin.lusby-daemon 2>/dev/null || true
+      ok "AppArmor profile unloaded"
+    fi
     rm -f /etc/apparmor.d/usr.sbin.lusby-daemon
     ok "AppArmor profile removed"
-    if command -v apparmor_parser &>/dev/null; then
-      log "Reloading AppArmor..."
-      apparmor_parser -R /etc/apparmor.d/usr.sbin.lusby-daemon 2>/dev/null || true
-      ok "AppArmor reloaded"
-    fi
   else
     warn "AppArmor profile not found"
   fi

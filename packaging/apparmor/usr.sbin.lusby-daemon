@@ -1,7 +1,7 @@
 # AppArmor profile for lusby-daemon
 #include <tunables/global>
 
-profile /usr/sbin/lusby-daemon flags=(complain) {
+profile /usr/sbin/lusby-daemon flags=(enforce) {
   include <abstractions/base>
 
   # Binary execution

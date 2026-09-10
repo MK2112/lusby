@@ -15,6 +15,17 @@ RestartSec=5
 StartLimitInterval=60
 StartLimitBurst=3
 
+# Hardening (daemon only needs its own dirs, usbguard rules, and the system bus)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/etc/usbguard /etc/lusby /var/log/lusby /var/lib/lusby
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
 # Logging
 StandardOutput=journal
 StandardError=journal
