@@ -7,8 +7,37 @@ use tui::layout::{Constraint, Direction, Layout};
 use tui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use tui::{backend::CrosstermBackend, Terminal};
 
+/// Serial equality treating missing and empty as the same device.
+/// (Entries normalize empty serials to None on insert; without this the
+/// "[selected]" marker never shows for serial-less devices and Enter
+/// keeps pushing duplicates.)
+fn serial_matches(entry_serial: Option<&str>, device_serial: &str) -> bool {
+    entry_serial.unwrap_or("") == device_serial
+}
+
+fn entry_matches(entry: &DeviceEntry, d: &DeviceInfo) -> bool {
+    entry.vendor_id == d.vendor_id
+        && entry.product_id == d.product_id
+        && serial_matches(entry.serial.as_deref(), &d.serial)
+}
+
+/// Ensures raw mode is always disabled when the editor exits, including
+/// early returns and error paths (otherwise the terminal is left broken).
+struct RawModeGuard;
+impl RawModeGuard {
+    fn enable() -> io::Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self)
+    }
+}
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+    }
+}
+
 pub fn run_baseline_editor(devices: Vec<DeviceInfo>) -> io::Result<Option<Baseline>> {
-    enable_raw_mode()?;
+    let _raw = RawModeGuard::enable()?;
     let mut stdout: Stdout = io::stdout();
     let backend: CrosstermBackend<&mut Stdout> = CrosstermBackend::new(&mut stdout);
     let mut terminal: Terminal<CrosstermBackend<&mut Stdout>> = Terminal::new(backend)?;
@@ -38,28 +67,28 @@ pub fn run_baseline_editor(devices: Vec<DeviceInfo>) -> io::Result<Option<Baseli
                 .block(Block::default().borders(Borders::ALL));
             f.render_widget(title, chunks[0]);
 
-            let items: Vec<ListItem> = devices
-                .iter()
-                .enumerate()
-                .map(|(i, d)| {
-                    let mut line = format!(
-                        "{}: {} {} {} {}",
-                        i + 1,
-                        d.vendor_id,
-                        d.product_id,
-                        d.serial,
-                        d.device_type
-                    );
-                    if baseline_devices.iter().any(|bd| {
-                        bd.vendor_id == d.vendor_id
-                            && bd.product_id == d.product_id
-                            && bd.serial.as_deref() == Some(&d.serial)
-                    }) {
-                        line.push_str(" [selected]");
-                    }
-                    ListItem::new(line)
-                })
-                .collect();
+            let items: Vec<ListItem> = if devices.is_empty() {
+                vec![ListItem::new("No devices detected")]
+            } else {
+                devices
+                    .iter()
+                    .enumerate()
+                    .map(|(i, d)| {
+                        let mut line = format!(
+                            "{}: {} {} {} {}",
+                            i + 1,
+                            d.vendor_id,
+                            d.product_id,
+                            d.serial,
+                            d.device_type
+                        );
+                        if baseline_devices.iter().any(|bd| entry_matches(bd, d)) {
+                            line.push_str(" [selected]");
+                        }
+                        ListItem::new(line)
+                    })
+                    .collect()
+            };
             let list = List::new(items)
                 .block(
                     Block::default()
@@ -78,7 +107,6 @@ pub fn run_baseline_editor(devices: Vec<DeviceInfo>) -> io::Result<Option<Baseli
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') => {
-                        disable_raw_mode()?;
                         return Ok(None);
                     }
                     KeyCode::Down => {
@@ -94,12 +122,12 @@ pub fn run_baseline_editor(devices: Vec<DeviceInfo>) -> io::Result<Option<Baseli
                         list_state.select(Some(selected));
                     }
                     KeyCode::Enter => {
-                        let d = &devices[selected];
-                        if let Some(idx) = baseline_devices.iter().position(|bd| {
-                            bd.vendor_id == d.vendor_id
-                                && bd.product_id == d.product_id
-                                && bd.serial.as_deref() == Some(&d.serial)
-                        }) {
+                        let Some(d) = devices.get(selected) else {
+                            continue;
+                        };
+                        if let Some(idx) =
+                            baseline_devices.iter().position(|bd| entry_matches(bd, d))
+                        {
                             baseline_devices.remove(idx);
                         } else {
                             baseline_devices.push(DeviceEntry {
@@ -122,12 +150,13 @@ pub fn run_baseline_editor(devices: Vec<DeviceInfo>) -> io::Result<Option<Baseli
                         disable_raw_mode()?;
                         println!("Enter comment: ");
                         let mut input = String::new();
-                        io::stdin().read_line(&mut input)?;
+                        let read = io::stdin().read_line(&mut input);
+                        // Always restore raw mode, even if reading failed.
+                        let _ = enable_raw_mode();
+                        read?;
                         comment = input.trim().to_string();
-                        enable_raw_mode()?;
                     }
                     KeyCode::Char('s') => {
-                        disable_raw_mode()?;
                         let devices_with_comment: Vec<DeviceEntry> = baseline_devices
                             .iter()
                             .cloned()
