@@ -46,10 +46,11 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Start ephemeral approval cleanup task
+    // Start ephemeral approval cleanup task (10s granularity so short
+    // TTLs are not over-permissive for up to a minute).
     let state_for_cleanup = state_clone.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
             state_for_cleanup.cleanup_expired_ephemeral().await;

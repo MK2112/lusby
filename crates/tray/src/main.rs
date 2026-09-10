@@ -69,55 +69,64 @@ pub async fn run_dbus_listener(
         if msg.message_type() == zbus::MessageType::Signal && path_ok && iface_ok {
             if let Some(member) = header.member().as_ref().map(|m| m.as_str()) {
                 match member {
-                    "unknown_device_inserted" => {
+                    "UnknownDeviceInserted" => {
                         let body = msg.body();
                         if let Ok((d,)) = body.deserialize::<(DeviceInfo,)>() {
                             println!(
                                 "Unknown USB device: {} {} serial={} type={}",
                                 d.vendor_id, d.product_id, d.serial, d.device_type
                             );
-                            *last_seen.lock().unwrap() = Some(d);
-                            if let Some(dev) = last_seen.lock().unwrap().as_ref() {
-                                let mut notif = Notification::new();
-                                let fp_short = if dev.fingerprint.is_empty() {
-                                    String::from("")
-                                } else {
-                                    short_fingerprint(&dev.fingerprint)
-                                };
-                                notif
-                                    .summary("Lusby: Unknown device")
-                                    .body(&format!(
-                                        "{} {}\nserial={} type={}\nfingerprint={}",
-                                        dev.vendor_id,
-                                        dev.product_id,
-                                        dev.serial,
-                                        dev.device_type,
-                                        fp_short
-                                    ))
-                                    .icon("security-high")
-                                    .action(
-                                        "approve_temp",
-                                        &format!(
-                                            "Approve for {} minutes",
-                                            (default_ttl / 60).max(1)
-                                        ),
-                                    )
-                                    .action("approve_perm", "Approve indefinitely")
-                                    .action("revoke", "Revoke device");
+                            *last_seen.lock().unwrap() = Some(d.clone());
+                            // Clone under a single lock; never hold the
+                            // mutex while building/sending notifications.
+                            let dev = d.clone();
+                            let mut notif = Notification::new();
+                            let fp_short = if dev.fingerprint.is_empty() {
+                                String::from("")
+                            } else {
+                                short_fingerprint(&dev.fingerprint)
+                            };
+                            notif
+                                .summary("Lusby: Unknown device")
+                                .body(&format!(
+                                    "{} {}\nserial={} type={}\nfingerprint={}",
+                                    dev.vendor_id,
+                                    dev.product_id,
+                                    dev.serial,
+                                    dev.device_type,
+                                    fp_short
+                                ))
+                                .icon("security-high")
+                                .action(
+                                    "approve_temp",
+                                    &format!("Approve for {} minutes", (default_ttl / 60).max(1)),
+                                )
+                                .action("revoke", "Revoke device");
 
-                                if let Ok(handle) = notif.show() {
-                                    // Spawn a short-lived thread to wait for at most one action
-                                    let device_id = dev.id.clone();
-                                    let ttl = default_ttl;
-                                    std::thread::spawn(move || {
-                                        handle.wait_for_action(|action| {
+                            if let Ok(handle) = notif.show() {
+                                // Spawn a short-lived thread to wait for at most one action.
+                                // Note: indefinite approvals are intentionally not
+                                // offered here; TTL=0 now requires polkit
+                                // authorization server-side. Permanent access
+                                // goes through signed baselines instead.
+                                let device_id = dev.id.clone();
+                                let ttl = default_ttl;
+                                std::thread::spawn(move || {
+                                    handle.wait_for_action(|action| {
+                                            // One runtime per notification thread,
+                                            // reused for whichever action fires.
+                                            let rt = match tokio::runtime::Runtime::new() {
+                                                Ok(rt) => rt,
+                                                Err(e) => {
+                                                    eprintln!("Failed to create runtime: {}", e);
+                                                    return;
+                                                }
+                                            };
                                             match action {
                                                 "approve_temp" => {
                                                     let uid = unsafe { geteuid() } as u32;
                                                     let ttl: u32 = ttl;
                                                     let dev_id = device_id.clone();
-                                                    // Use a small runtime for this one-off call
-                                                    let rt = tokio::runtime::Runtime::new().unwrap();
                                                     rt.block_on(async move {
                                                         if let Ok(conn) =
                                                             zbus::Connection::system().await
@@ -132,7 +141,7 @@ pub async fn run_dbus_listener(
                                                             {
                                                                 let result: zbus::Result<bool> = proxy
                                                                     .call(
-                                                                        "request_ephemeral_allow",
+                                                                        "RequestEphemeralAllow",
                                                                         &(dev_id, ttl, uid),
                                                                     )
                                                                     .await;
@@ -144,39 +153,7 @@ pub async fn run_dbus_listener(
                                                         }
                                                     });
                                                 }
-                                                "approve_perm" => {
-                                                    let uid = unsafe { geteuid() } as u32;
-                                                    let dev_id = device_id.clone();
-                                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                                    rt.block_on(async move {
-                                                        if let Ok(conn) =
-                                                            zbus::Connection::system().await
-                                                        {
-                                                            if let Ok(proxy) = zbus::Proxy::new(
-                                                                &conn,
-                                                                "org.lusby.Daemon",
-                                                                "/org/lusby/Daemon",
-                                                                "org.lusby.Daemon",
-                                                            )
-                                                            .await
-                                                            {
-                                                                // Use TTL=0 for indefinite approval
-                                                                let result: zbus::Result<bool> = proxy
-                                                                    .call(
-                                                                        "request_ephemeral_allow",
-                                                                        &(dev_id, 0u32, uid),
-                                                                    )
-                                                                    .await;
-                                                                match result {
-                                                                    Ok(_) => println!("Indefinite approval granted"),
-                                                                    Err(e) => eprintln!("Failed to approve device indefinitely: {}", e),
-                                                                }
-                                                            }
-                                                        }
-                                                    });
-                                                }
                                                 "revoke" => {
-                                                    let rt = tokio::runtime::Runtime::new().unwrap();
                                                     let dev = device_id.clone();
                                                     rt.block_on(async move {
                                                         if let Ok(conn) =
@@ -191,7 +168,7 @@ pub async fn run_dbus_listener(
                                                             .await
                                                             {
                                                                 let result: zbus::Result<bool> = proxy
-                                                                    .call("revoke_device", &(dev))
+                                                                    .call("RevokeDevice", &(dev))
                                                                     .await;
                                                                 match result {
                                                                     Ok(_) => println!("Device revoked"),
@@ -204,12 +181,11 @@ pub async fn run_dbus_listener(
                                                 _ => eprintln!("Unknown action: {}", action),
                                             }
                                         });
-                                    });
-                                }
+                                });
                             }
                         }
                     }
-                    "device_removed" => {
+                    "DeviceRemoved" => {
                         let body = msg.body();
                         if let Ok((id,)) = body.deserialize::<(String,)>() {
                             println!("USB device removed: {}", id);

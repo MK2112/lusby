@@ -75,7 +75,7 @@ fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>, default_ttl_secs: 
                             {
                                 let device_id_clone = device_id.clone();
                                 match proxy
-                                    .call_method("request_ephemeral_allow", &(device_id, ttl, uid))
+                                    .call_method("RequestEphemeralAllow", &(device_id, ttl, uid))
                                     .await
                                 {
                                     Ok(_) => println!("Approved device {}", device_id_clone),
@@ -135,7 +135,7 @@ fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>, default_ttl_secs: 
                             )
                             .await
                             {
-                                match proxy.call_method("revoke_device", &(device_id)).await {
+                                match proxy.call_method("RevokeDevice", &(device_id)).await {
                                     Ok(_) => println!("Revoked device {}", device_id),
                                     Err(e) => eprintln!("Failed to revoke device: {}", e),
                                 }
@@ -167,7 +167,7 @@ fn start_indicator(last_seen: Arc<Mutex<Option<DeviceInfo>>>, default_ttl_secs: 
                             )
                             .await
                             {
-                                match proxy.call_method("revoke_device", &(device_id)).await {
+                                match proxy.call_method("RevokeDevice", &(device_id)).await {
                                     Ok(_) => println!("Revoked device {}", device_id),
                                     Err(e) => eprintln!("Failed to revoke device: {}", e),
                                 }

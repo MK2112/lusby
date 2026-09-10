@@ -19,7 +19,7 @@ async fn get_policy_status_roundtrip() -> Result<()> {
         "org.lusby.Daemon",
     )
     .await?;
-    let status: lusby_common::types::PolicyStatus = proxy.call("get_policy_status", &()).await?;
+    let status: lusby_common::types::PolicyStatus = proxy.call("GetPolicyStatus", &()).await?;
     println!("status: deny_unknown={}", status.deny_unknown);
     Ok(())
 }
@@ -38,7 +38,7 @@ async fn get_device_info_invalid_id() -> Result<()> {
         "org.lusby.Daemon",
     )
     .await?;
-    let info: DeviceInfo = proxy.call("get_device_info", &("invalid_id")).await?;
+    let info: DeviceInfo = proxy.call("GetDeviceInfo", &("invalid_id")).await?;
     assert_eq!(info.id, "");
     assert!(!info.allowed);
     Ok(())
@@ -59,7 +59,7 @@ async fn request_ephemeral_allow_invalid_id() -> Result<()> {
     )
     .await?;
     let ok: bool = proxy
-        .call("request_ephemeral_allow", &("invalid_id", 60u32, 1000u32))
+        .call("RequestEphemeralAllow", &("invalid_id", 60u32, 1000u32))
         .await?;
     assert!(!ok);
     Ok(())
@@ -107,15 +107,15 @@ async fn list_devices_and_allow_ephemeral() -> Result<()> {
         "org.lusby.Daemon",
     )
     .await?;
-    let devices: Vec<DeviceInfo> = proxy.call("list_devices", &()).await?;
+    let devices: Vec<DeviceInfo> = proxy.call("ListDevices", &()).await?;
     println!("Found {} devices", devices.len());
     if let Some(dev) = devices.iter().find(|d| !d.id.is_empty()) {
         let ok: bool = proxy
-            .call("request_ephemeral_allow", &(dev.id.clone(), 30u32, 1000u32))
+            .call("RequestEphemeralAllow", &(dev.id.clone(), 30u32, 1000u32))
             .await?;
         println!("Ephemeral allow for {}: {}", dev.id, ok);
         // Optionally revoke again
-        let revoked: bool = proxy.call("revoke", &(dev.id.clone())).await?;
+        let revoked: bool = proxy.call("RevokeDevice", &(dev.id.clone())).await?;
         println!("Revoked {}: {}", dev.id, revoked);
     }
     Ok(())
@@ -137,7 +137,7 @@ async fn request_ephemeral_allow_negative_ttl() -> Result<()> {
     .await?;
     // Negative TTL should be rejected or handled as error
     let ok: bool = proxy
-        .call("request_ephemeral_allow", &("invalid_id", 0u32, 1000u32))
+        .call("RequestEphemeralAllow", &("invalid_id", 0u32, 1000u32))
         .await?;
     assert!(!ok);
     Ok(())

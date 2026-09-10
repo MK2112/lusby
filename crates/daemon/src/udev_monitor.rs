@@ -129,15 +129,12 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
 
     // Async loop: wait for datagrams, parse them and process the event.
     let mut buf = vec![0u8; 16 * 1024]; // large enough buffer for the JSON payload
+                                        // Clone once outside the loop instead of duplicating the fd per event.
+    let recv_sock = async_fd
+        .get_ref()
+        .try_clone()
+        .context("cloning unix datagram for recv")?;
     loop {
-        // Clone the underlying UnixDatagram (duplicates the fd) BEFORE taking the mutable read guard.
-        // The temporary immutable borrow taken by `get_ref()` ends immediately after try_clone() returns,
-        // so there is no overlap with the later mutable borrow `readable_mut()`.
-        let recv_sock = async_fd
-            .get_ref()
-            .try_clone()
-            .context("cloning unix datagram for recv")?;
-
         // Now wait until the datagram socket is readable
         let mut guard = async_fd.readable_mut().await?;
 
@@ -166,7 +163,20 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                             });
 
                             let info = DeviceInfo {
-                                id: raw.devnode.clone(),
+                                // Stable composite id the daemon can resolve to a
+                                // backend (usbguard numeric) id. Falls back to the
+                                // devnode only when vid/pid are both missing.
+                                id: if raw.vendor_id.is_empty() && raw.product_id.is_empty() {
+                                    if raw.devnode.is_empty() {
+                                        format!("unknown:unknown:{}", raw.serial)
+                                    } else {
+                                        raw.devnode.clone()
+                                    }
+                                } else if raw.serial.is_empty() {
+                                    format!("{}:{}", raw.vendor_id, raw.product_id)
+                                } else {
+                                    format!("{}:{}:{}", raw.vendor_id, raw.product_id, raw.serial)
+                                },
                                 vendor_id: raw.vendor_id.clone(),
                                 product_id: raw.product_id.clone(),
                                 serial: raw.serial.clone(),
@@ -186,7 +196,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                                             Option::<&str>::None,
                                             DBUS_PATH,
                                             "org.lusby.Daemon",
-                                            "unknown_device_inserted",
+                                            "UnknownDeviceInserted",
                                             &(&info_clone,),
                                         )
                                         .await
@@ -202,7 +212,7 @@ pub async fn run_udev_listener(connection: Connection) -> Result<()> {
                                             Option::<&str>::None,
                                             DBUS_PATH,
                                             "org.lusby.Daemon",
-                                            "device_removed",
+                                            "DeviceRemoved",
                                             &(&info_clone.id,),
                                         )
                                         .await
