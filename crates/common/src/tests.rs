@@ -28,6 +28,46 @@ fn fingerprint_deterministic() {
 }
 
 #[test]
+fn fingerprint_separates_fields() {
+    // A `|` inside one field must not be able to masquerade as a field boundary.
+    let a = FingerprintInput {
+        vendor_id: "ab",
+        product_id: "cd",
+        serial: Some("x|y"),
+        manufacturer: None,
+        product: None,
+        raw_descriptors: None,
+    };
+    let b = FingerprintInput {
+        vendor_id: "ab",
+        product_id: "cd|x",
+        serial: Some("y"),
+        manufacturer: None,
+        product: None,
+        raw_descriptors: None,
+    };
+    assert_ne!(compute_fingerprint(&a), compute_fingerprint(&b));
+    // Present vs absent optional fields must differ.
+    let c = FingerprintInput {
+        vendor_id: "ab",
+        product_id: "cd",
+        serial: None,
+        manufacturer: None,
+        product: None,
+        raw_descriptors: None,
+    };
+    let d = FingerprintInput {
+        vendor_id: "ab",
+        product_id: "cd",
+        serial: Some(""),
+        manufacturer: None,
+        product: None,
+        raw_descriptors: None,
+    };
+    assert_ne!(compute_fingerprint(&c), compute_fingerprint(&d));
+}
+
+#[test]
 fn canonical_sign_verify_baseline() {
     let mut rng = OsRng;
     let sk = SigningKey::generate(&mut rng);

@@ -9,26 +9,45 @@ pub struct FingerprintInput<'a> {
     pub raw_descriptors: Option<&'a [u8]>,
 }
 
+fn hash_field(hasher: &mut Sha256, tag: &str, data: &[u8]) {
+    // Length-prefixed, tagged fields: a `|` inside a serial can no longer
+    // shift bytes into a neighbouring field and forge a collision.
+    hasher.update(tag.as_bytes());
+    hasher.update([0u8]);
+    hasher.update((data.len() as u64).to_le_bytes());
+    hasher.update(data);
+}
+
 pub fn compute_fingerprint(input: &FingerprintInput) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(input.vendor_id.as_bytes());
-    hasher.update(b"|");
-    hasher.update(input.product_id.as_bytes());
-    hasher.update(b"|");
-    if let Some(s) = input.serial {
-        hasher.update(s.as_bytes());
+    hash_field(&mut hasher, "vid", input.vendor_id.as_bytes());
+    hash_field(&mut hasher, "pid", input.product_id.as_bytes());
+    // Encode optionality explicitly so None != Some("").
+    match input.serial {
+        Some(s) => {
+            hash_field(&mut hasher, "serial?", &[1]);
+            hash_field(&mut hasher, "serial", s.as_bytes());
+        }
+        None => hash_field(&mut hasher, "serial?", &[0]),
     }
-    hasher.update(b"|");
-    if let Some(m) = input.manufacturer {
-        hasher.update(m.as_bytes());
+    match input.manufacturer {
+        Some(s) => {
+            hash_field(&mut hasher, "manufacturer?", &[1]);
+            hash_field(&mut hasher, "manufacturer", s.as_bytes());
+        }
+        None => hash_field(&mut hasher, "manufacturer?", &[0]),
     }
-    hasher.update(b"|");
-    if let Some(p) = input.product {
-        hasher.update(p.as_bytes());
+    match input.product {
+        Some(s) => {
+            hash_field(&mut hasher, "product?", &[1]);
+            hash_field(&mut hasher, "product", s.as_bytes());
+        }
+        None => hash_field(&mut hasher, "product?", &[0]),
     }
-    hasher.update(b"|");
-    if let Some(desc) = input.raw_descriptors {
-        hasher.update(desc);
+    // Distinguish "no descriptors" from "empty descriptors".
+    match input.raw_descriptors {
+        Some(desc) => hash_field(&mut hasher, "desc", desc),
+        None => hash_field(&mut hasher, "nodesc", &[]),
     }
     let digest = hasher.finalize();
     format!("sha256:{}", hex::encode(digest))
