@@ -65,14 +65,11 @@ impl DaemonState {
             inner.ephemeral.retain(|id, expiry| match expiry {
                 // None = indefinite (polkit-gated), never expires here.
                 None => true,
-                Some(t) => {
-                    if now >= *t {
-                        expired.push(id.clone());
-                        false
-                    } else {
-                        true
-                    }
+                Some(t) if now >= *t => {
+                    expired.push(id.clone());
+                    false
                 }
+                Some(_) => true,
             });
             expired
         };
