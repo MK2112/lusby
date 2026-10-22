@@ -212,3 +212,10 @@ jobs:
           CARGO_TARGET_DIR=../../target cargo deb --no-build --no-strip
           echo "Listing target directory: $(pwd)/../../target/debian/"
           ls -la ../../target/debian/
+      - name: Upload Debian package
+        uses: actions/upload-artifact@v4
+        with:
+          name: debian-package
+          path: target/debian/*.deb
+          if-no-files-found: error
+          retention-days: 7
