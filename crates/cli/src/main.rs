@@ -90,7 +90,7 @@ async fn main() -> Result<()> {
                     let secret_bytes = Zeroizing::new(sk.to_bytes());
                     let secret_b64 = Zeroizing::new(B64.encode(*secret_bytes));
                     if print_secret {
-                        println!("SECRET_B64={}", &*secret_b64);
+                        println!("SECRET_B64={}", *secret_b64);
                     } else {
                         let path = secret_out
                             .unwrap_or_else(|| std::path::PathBuf::from("lusby_signing.key"));
