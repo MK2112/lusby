@@ -22,9 +22,15 @@ sudo apt update
 
 log "Installing required packages..."
 APT_PKGS=(
-  usbguard policykit-1 pkg-config build-essential
+  usbguard pkg-config build-essential
   libudev-dev libgtk-3-dev libayatana-appindicator3-dev
 )
+
+if apt-get install -s -y policykit-1 >/dev/null 2>&1; then
+  APT_PKGS+=(policykit-1)
+else
+  APT_PKGS+=(polkitd pkexec)
+fi
 sudo apt install -y "${APT_PKGS[@]}"
 
 # Make sure Rust is installed

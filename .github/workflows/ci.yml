@@ -12,23 +12,24 @@ env:
 jobs:
   test:
     name: Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
       
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             usbguard \
-            policykit-1 \
+            polkitd \
+            pkexec \
             pkg-config \
             build-essential \
             libudev1 \
             libudev-dev \
             libgtk-3-dev \
             libatk1.0-dev \
-            libgdk-pixbuf2.0-dev \
+            libgdk-pixbuf-2.0-dev \
             libappindicator3-dev \
             libdbus-1-dev \
             libusbguard-dev \
@@ -37,15 +38,12 @@ jobs:
             libpam0g-dev
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
           components: rustfmt, clippy
-          override: true
 
       - name: Cache cargo registry
-        uses: actions/cache@v3
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -172,30 +170,28 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v5
       
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          override: true
+        uses: dtolnay/rust-toolchain@stable
           
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             usbguard \
-            policykit-1 \
+            polkitd \
+            pkexec \
             pkg-config \
             build-essential \
             libudev1 \
             libudev-dev \
             libgtk-3-dev \
             libatk1.0-dev \
-            libgdk-pixbuf2.0-dev \
+            libgdk-pixbuf-2.0-dev \
             libappindicator3-dev \
             libdbus-1-dev \
             libusbguard-dev \
