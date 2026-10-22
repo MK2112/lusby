@@ -1,16 +1,46 @@
 use async_trait::async_trait;
 use lusby_common::backend::UsbBackend;
+use lusby_common::baseline::is_valid_interface_spec;
 use lusby_common::types::DeviceInfo;
 use std::fs;
 use std::io::Write;
-use std::process::Command;
 use std::str;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum BackendError {
     #[error("usbguard command failed: {0}")]
     Cmd(String),
+}
+
+/// One logical usbguard section owned by lusby; everything outside these
+/// markers belongs to the administrator and is preserved on apply.
+const BEGIN_MARK: &str = "# lusby:begin managed rules";
+const END_MARK: &str = "# lusby:end managed rules";
+
+const USBGUARD_TIMEOUT: Duration = Duration::from_secs(10);
+const USBGUARD_MAX_CONCURRENCY: usize = 4;
+const LIST_CACHE_TTL: Duration = Duration::from_secs(2);
+
+fn usbguard_sema() -> &'static tokio::sync::Semaphore {
+    static SEMA: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    SEMA.get_or_init(|| tokio::sync::Semaphore::new(USBGUARD_MAX_CONCURRENCY))
+}
+
+fn apply_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+fn list_cache() -> &'static Mutex<Option<(Instant, Vec<DeviceInfo>)>> {
+    static CACHE: Mutex<Option<(Instant, Vec<DeviceInfo>)>> = Mutex::new(None);
+    &CACHE
+}
+
+fn invalidate_list_cache() {
+    *list_cache().lock().unwrap() = None;
 }
 
 #[cfg(test)]
@@ -63,6 +93,35 @@ mod tests {
         assert!(UsbguardBackend::parse_list_devices(sample).is_empty());
     }
 
+    #[test]
+    fn parse_extracts_hash_and_interfaces() {
+        let sample = "3: allow id 046d:c534 serial \"A\" name \"N\" hash \"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\" with-interface 03:01:01 with-interface 03:01:02\n";
+        let devices = UsbguardBackend::parse_list_devices(sample);
+        assert_eq!(
+            devices[0].usbguard_hash,
+            "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+        );
+        assert_eq!(devices[0].interfaces, vec!["03:01:01", "03:01:02"]);
+    }
+
+    #[test]
+    fn merge_preserves_foreign_rules() {
+        let existing = "allow id 1111:2222\nblock id 3333:4444\n";
+        let merged = UsbguardBackend::merge_rules(existing, "allow id 046d:c534\n");
+        // Foreign rules survive...
+        assert!(merged.contains("allow id 1111:2222"));
+        assert!(merged.contains("block id 3333:4444"));
+        // ...and the managed section is delimited.
+        assert!(merged.contains(BEGIN_MARK));
+        assert!(merged.contains(END_MARK));
+        // Re-applying must not accumulate duplicate managed sections.
+        let again = UsbguardBackend::merge_rules(&merged, "allow id 9999:8888\n");
+        assert_eq!(again.matches(BEGIN_MARK).count(), 1);
+        assert!(again.contains("allow id 9999:8888"));
+        assert!(!again.contains("allow id 046d:c534"));
+        assert!(again.contains("allow id 1111:2222"));
+    }
+
     use proptest::prelude::*;
     proptest! {
         #[test]
@@ -77,10 +136,20 @@ mod tests {
 pub struct UsbguardBackend;
 
 impl UsbguardBackend {
-    fn run_usbguard(args: &[&str]) -> Result<String, BackendError> {
-        let out = Command::new("usbguard")
-            .args(args)
-            .output()
+    /// Run `usbguard` with a timeout and a concurrency bound so a hung or
+    /// flooded backend cannot exhaust the daemon.
+    async fn run_usbguard(args: &[&str]) -> Result<String, BackendError> {
+        let _permit = usbguard_sema()
+            .acquire()
+            .await
+            .map_err(|_| BackendError::Cmd("usbguard semaphore closed".into()))?;
+        let mut cmd = tokio::process::Command::new("usbguard");
+        cmd.args(args);
+        // A dropped/timeout future must not leave a running child behind.
+        cmd.kill_on_drop(true);
+        let out = tokio::time::timeout(USBGUARD_TIMEOUT, cmd.output())
+            .await
+            .map_err(|_| BackendError::Cmd("usbguard command timed out".into()))?
             .map_err(|e| BackendError::Cmd(e.to_string()))?;
         if out.status.success() {
             Ok(String::from_utf8_lossy(&out.stdout).to_string())
@@ -105,7 +174,7 @@ impl UsbguardBackend {
     }
 
     fn parse_list_devices(output: &str) -> Vec<DeviceInfo> {
-        // Very basic parser for `usbguard list-devices` textual output.
+        // Parser for `usbguard list-devices` textual output.
         // Example lines (format can vary):
         // 3: allow id 1d6b:0002 serial "" name "xHCI Host Controller" hash "..." parent-hash "..." via-port "..." with-interface ...
         // serial "AB\"C"
@@ -174,6 +243,27 @@ impl UsbguardBackend {
                 }
                 serial = s_acc;
             }
+            // Extract the usbguard device hash ("hash \"...\""): identity for
+            // baseline rules that binds the descriptor set.
+            let mut usbguard_hash = String::new();
+            if let Some(idx) = line.find(" hash \"") {
+                let rest = &line[idx + 7..];
+                if let Some(end) = rest.find('"') {
+                    let h = &rest[..end];
+                    if !h.is_empty() && h.chars().all(|c| c.is_ascii_hexdigit()) {
+                        usbguard_hash = h.to_string();
+                    }
+                }
+            }
+            // Extract all well-formed with-interface tokens (skip quoted noise).
+            let mut interfaces: Vec<String> = Vec::new();
+            for chunk in line.split(" with-interface ").skip(1) {
+                let token = chunk.split_whitespace().next().unwrap_or("");
+                let token = token.trim_matches('"');
+                if is_valid_interface_spec(token) {
+                    interfaces.push(token.to_string());
+                }
+            }
             // Guess type by presence of with-interface strings
             let dtype = if line.contains("with-interface +hid") {
                 "hid"
@@ -199,22 +289,124 @@ impl UsbguardBackend {
                     device_type: dtype.to_string(),
                     allowed,
                     persistent: false,
+                    usbguard_hash,
+                    interfaces,
                 });
             }
         }
         devices
     }
 
-    /// Atomically write new rules content to /etc/usbguard/rules.conf and reload usbguard.
-    /// On reload failure, restore previous rules.
-    pub fn apply_rules_atomically(rules_content: &str) -> Result<(), BackendError> {
+    async fn list_devices_cached(&self) -> Vec<DeviceInfo> {
+        {
+            let guard = list_cache().lock().unwrap();
+            if let Some((at, list)) = guard.as_ref() {
+                if at.elapsed() < LIST_CACHE_TTL {
+                    return list.clone();
+                }
+            }
+        }
+        let devices = match Self::run_usbguard(&["list-devices"]).await {
+            Ok(out) => Self::parse_list_devices(&out),
+            Err(_) => Vec::new(),
+        };
+        *list_cache().lock().unwrap() = Some((Instant::now(), devices.clone()));
+        devices
+    }
+
+    /// The effective implicit policy target ("block"/"allow"), or None.
+    async fn implicit_policy_target_raw() -> Option<String> {
+        let out = Self::run_usbguard(&["get-parameter", "ImplicitPolicyTarget"])
+            .await
+            .ok()?;
+        let t = out.trim().to_lowercase();
+        if t.is_empty() {
+            None
+        } else {
+            Some(t)
+        }
+    }
+
+    /// Merge the lusby-managed rules into the existing policy instead of
+    /// replacing the whole file: administrator/foreign rules survive, and
+    /// re-applying replaces (never duplicates) the managed section.
+    fn merge_rules(existing: &str, lusby_block: &str) -> String {
+        let mut kept: Vec<&str> = Vec::new();
+        let mut in_managed = false;
+        for line in existing.lines() {
+            let t = line.trim();
+            if t == BEGIN_MARK {
+                in_managed = true;
+                continue;
+            }
+            if t == END_MARK {
+                in_managed = false;
+                continue;
+            }
+            if !in_managed {
+                kept.push(line);
+            }
+        }
+        let mut out = String::new();
+        out.push_str(BEGIN_MARK);
+        out.push('\n');
+        out.push_str(lusby_block.trim_end());
+        out.push('\n');
+        out.push_str(END_MARK);
+        out.push('\n');
+        for l in kept {
+            out.push_str(l);
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Atomically merge new lusby rules into /etc/usbguard/rules.conf and
+    /// reload usbguard. On reload failure, restore previous rules.
+    /// Serialized in-process so concurrent applies cannot interleave the
+    /// fixed tmp/backup paths.
+    pub async fn apply_rules_atomically(rules_content: &str) -> Result<(), BackendError> {
         const MAX_RULES_BYTES: usize = 1024 * 1024;
         if rules_content.len() > MAX_RULES_BYTES {
             return Err(BackendError::Cmd("rules content too large".into()));
         }
+        let _guard = apply_lock().lock().await;
+
+        let content = rules_content.to_string();
+        // Blocking file work runs off the async workers.
+        let merged_len = tokio::task::spawn_blocking(move || Self::fs_apply(&content))
+            .await
+            .map_err(|e| BackendError::Cmd(format!("apply task: {e}")))?;
+        merged_len?;
+
+        // Reload usbguard
+        match Self::run_usbguard(&["reload"]).await {
+            Ok(_) => {
+                invalidate_list_cache();
+                Ok(())
+            }
+            Err(e) => {
+                // Attempt rollback (only if a backup exists; otherwise
+                // removing the just-installed broken file is unsafe, so keep
+                // it and surface the error).
+                tokio::task::spawn_blocking(Self::fs_rollback)
+                    .await
+                    .map_err(|e| BackendError::Cmd(format!("rollback task: {e}")))?;
+                invalidate_list_cache();
+                Err(e)
+            }
+        }
+    }
+
+    fn fs_apply(rules_content: &str) -> Result<(), BackendError> {
         let rules_path = "/etc/usbguard/rules.conf";
         let tmp_path = "/etc/usbguard/rules.conf.tmp";
         let bak_path = "/etc/usbguard/rules.conf.bak";
+
+        // Merge with (rather than replace) the existing policy so unrelated
+        // administrator rules and recovery allowances are preserved.
+        let existing = fs::read_to_string(rules_path).unwrap_or_default();
+        let merged = Self::merge_rules(&existing, rules_content);
 
         // Remove a stale tmp file first so `create_new` below is a true
         // exclusive create (no truncating a pre-existing symlink/plant).
@@ -229,10 +421,24 @@ impl UsbguardBackend {
             let mut f = opts
                 .open(tmp_path)
                 .map_err(|e| BackendError::Cmd(format!("create tmp: {e}")))?;
-            f.write_all(rules_content.as_bytes())
+            f.write_all(merged.as_bytes())
                 .map_err(|e| BackendError::Cmd(format!("write tmp: {e}")))?;
             f.sync_all()
                 .map_err(|e| BackendError::Cmd(format!("fsync tmp: {e}")))?;
+        }
+
+        // Preserve the previous owner/mode of rules.conf so usbguard daemons
+        // running as a dedicated user can still read the file.
+        if let Ok(md) = fs::metadata(rules_path) {
+            use std::os::unix::fs::MetadataExt;
+            let _ = fs::set_permissions(tmp_path, md.permissions());
+            #[cfg(unix)]
+            unsafe {
+                use std::ffi::CString;
+                let c_path =
+                    CString::new(tmp_path).map_err(|_| BackendError::Cmd("bad tmp path".into()))?;
+                libc::chown(c_path.as_ptr(), md.uid(), md.gid());
+            }
         }
 
         // Backup existing rules if present
@@ -248,25 +454,20 @@ impl UsbguardBackend {
         if let Ok(dir) = fs::File::open("/etc/usbguard") {
             let _ = dir.sync_all();
         }
+        Ok(())
+    }
 
-        // Reload usbguard
-        match Self::run_usbguard(&["reload"]) {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                // Attempt rollback (only if a backup exists; otherwise
-                // remove the just-installed broken file is unsafe, so keep
-                // it and surface the error).
-                if fs::metadata(bak_path).is_ok() {
-                    let _ = fs::rename(bak_path, rules_path);
-                    if let Ok(dir) = fs::File::open("/etc/usbguard") {
-                        let _ = dir.sync_all();
-                    }
-                    let _ = Self::run_usbguard(&["reload"]);
-                } else {
-                    let _ = fs::remove_file(tmp_path);
-                }
-                Err(e)
+    fn fs_rollback() {
+        let rules_path = "/etc/usbguard/rules.conf";
+        let bak_path = "/etc/usbguard/rules.conf.bak";
+        let tmp_path = "/etc/usbguard/rules.conf.tmp";
+        if fs::metadata(bak_path).is_ok() {
+            let _ = fs::rename(bak_path, rules_path);
+            if let Ok(dir) = fs::File::open("/etc/usbguard") {
+                let _ = dir.sync_all();
             }
+        } else {
+            let _ = fs::remove_file(tmp_path);
         }
     }
 }
@@ -274,43 +475,37 @@ impl UsbguardBackend {
 #[async_trait]
 impl UsbBackend for UsbguardBackend {
     async fn list_devices(&self) -> Vec<DeviceInfo> {
-        match tokio::task::spawn_blocking(|| Self::run_usbguard(&["list-devices"]))
-            .await
-            .ok()
-            .and_then(|r| r.ok())
-        {
-            Some(out) => Self::parse_list_devices(&out),
-            None => Vec::new(),
-        }
+        self.list_devices_cached().await
     }
 
     async fn get_device(&self, device_id: &str) -> Option<DeviceInfo> {
-        let list = self.list_devices().await;
+        let list = self.list_devices_cached().await;
         list.into_iter().find(|d| d.id == device_id)
     }
 
     async fn allow_ephemeral(&self, device_id: &str, _ttl_secs: u32) -> bool {
+        // Option-injection guard: an id must never parse as a usbguard flag.
+        if device_id.is_empty() || device_id.starts_with('-') {
+            return false;
+        }
         // Ephemeral authorization via a temporary allow rule
-        let device_id = device_id.to_string();
-        tokio::task::spawn_blocking(move || {
-            let args = ["allow-device", &device_id];
-            Self::run_usbguard(&args)
-        })
-        .await
-        .ok()
-        .map(|r| r.is_ok())
-        .unwrap_or(false)
+        let args = ["allow-device", device_id];
+        let ok = Self::run_usbguard(&args).await.is_ok();
+        invalidate_list_cache();
+        ok
     }
 
     async fn revoke(&self, device_id: &str) -> bool {
-        let device_id = device_id.to_string();
-        tokio::task::spawn_blocking(move || {
-            let args = ["reject-device", &device_id];
-            Self::run_usbguard(&args)
-        })
-        .await
-        .ok()
-        .map(|r| r.is_ok())
-        .unwrap_or(false)
+        if device_id.is_empty() || device_id.starts_with('-') {
+            return false;
+        }
+        let args = ["reject-device", device_id];
+        let ok = Self::run_usbguard(&args).await.is_ok();
+        invalidate_list_cache();
+        ok
+    }
+
+    async fn implicit_policy_target(&self) -> Option<String> {
+        Self::implicit_policy_target_raw().await
     }
 }

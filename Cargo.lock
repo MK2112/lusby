@@ -1300,6 +1300,7 @@ name = "lusby-backend-usbguard"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "libc",
  "lusby-common",
  "proptest",
  "serde",
@@ -1345,6 +1346,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "toml",
  "tracing",
@@ -1393,6 +1395,7 @@ dependencies = [
  "tui",
  "whoami",
  "zbus 4.4.0",
+ "zeroize",
 ]
 
 [[package]]

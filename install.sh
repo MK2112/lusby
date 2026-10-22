@@ -68,7 +68,9 @@ if [ "$ACTUAL_USER" != "root" ]; then
   if [ -z "$ACTUAL_HOME" ]; then
     ACTUAL_HOME="/home/$ACTUAL_USER"
   fi
-  mkdir -p "$ACTUAL_HOME/.config/autostart"
+  ACTUAL_GROUP="$(id -gn "$ACTUAL_USER" 2>/dev/null || echo "$ACTUAL_USER")"
+  install -d -o "$ACTUAL_USER" -g "$ACTUAL_GROUP" \
+    "$ACTUAL_HOME/.config" "$ACTUAL_HOME/.config/autostart"
   cat > "$ACTUAL_HOME/.config/autostart/lusby-tray.desktop" <<EOL
 [Desktop Entry]
 Type=Application
@@ -80,7 +82,7 @@ StartupNotify=false
 Terminal=false
 Comment=USB device management tray for Lusby
 EOL
-  chown "$ACTUAL_USER:$ACTUAL_USER" "$ACTUAL_HOME/.config/autostart/lusby-tray.desktop"
+  chown "$ACTUAL_USER:$ACTUAL_GROUP" "$ACTUAL_HOME/.config/autostart/lusby-tray.desktop"
   chmod 644 "$ACTUAL_HOME/.config/autostart/lusby-tray.desktop"
 else
   warn "Running as root; cannot determine regular user for autostart setup"
@@ -93,9 +95,12 @@ sudo mkdir -p /etc/lusby/{baselines,trusted_pubkeys} \
              /var/log/lusby
 
 sudo chown -R root:root /etc/lusby /var/lib/lusby /var/log/lusby
-sudo chmod 700 /etc/lusby /etc/lusby/baselines /etc/lusby/trusted_pubkeys /var/lib/lusby /var/log/lusby
+# /etc/lusby itself is world-readable so the user-session tray can read
+# config.toml (no secrets inside); baselines and keys stay owner-only.
+sudo chmod 755 /etc/lusby
+sudo chmod 700 /etc/lusby/baselines /etc/lusby/trusted_pubkeys /var/lib/lusby /var/log/lusby
 if [ -f /etc/lusby/config.toml ]; then
-  sudo chmod 600 /etc/lusby/config.toml
+  sudo chmod 644 /etc/lusby/config.toml
 else
   warn "/etc/lusby/config.toml missing (package may not have installed it)"
 fi
@@ -197,8 +202,8 @@ check_file() {
   fi
 }
 
-check_dir /etc/lusby 700
-check_file /etc/lusby/config.toml 600
+check_dir /etc/lusby 755
+check_file /etc/lusby/config.toml 644
 check_dir /etc/lusby/baselines 700
 check_dir /etc/lusby/trusted_pubkeys 700
 check_dir /var/lib/lusby 700
@@ -217,8 +222,16 @@ else
   warn "D-Bus call failed: GetPolicyStatus"
 fi
 
+# The CLI ships in the daemon package; the documented quickstart needs it.
+if command -v lusbyctl >/dev/null 2>&1; then
+  ok "lusbyctl installed at $(command -v lusbyctl)"
+else
+  warn "lusbyctl not found on PATH (expected /usr/bin/lusbyctl)"
+fi
+
 log "Installation complete!"
 echo "Check status with: systemctl status lusby-daemon"
+echo "List devices with: lusbyctl list"
 echo "Follow logs with: journalctl -u lusby-daemon -f"
 echo "Refer to the documentation for further setup instructions."
 

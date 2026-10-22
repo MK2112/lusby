@@ -54,10 +54,9 @@ pub fn compute_fingerprint(input: &FingerprintInput) -> String {
 }
 
 pub fn short_fingerprint(full: &str) -> String {
-    // Expect format sha256:<hex>
-    if let Some(hexpart) = full.split(':').nth(1) {
-        hexpart[0..8.min(hexpart.len())].to_string()
-    } else {
-        full.chars().take(8).collect()
-    }
+    // Expect format sha256:<hex>. Never slice by byte index: a crafted
+    // fingerprint with multibyte UTF-8 could panic on a non-boundary cut,
+    // and this is reachable from unauthenticated D-Bus signals.
+    let hexpart = full.split(':').nth(1).unwrap_or(full);
+    hexpart.chars().take(8).collect()
 }

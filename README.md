@@ -51,16 +51,16 @@ The script installs all dependencies, builds the packages, sets up the tray and 
    - Device is blocked, tray shows notification
    - Show devices with `lusbyctl list`
 2. **Temporarily allow**
-   - Tray: "Approve for 5 minutes"
-   - CLI: `lusbyctl allow --device <device-id> --ttl 300`
+   - Tray: notification action "Approve for 5 minutes", or "Approve most recent device"
+   - CLI: `lusbyctl allow <device-id> --ttl 300`
 3. **Permanently allow**
    - Use the visual baseline editor: `lusbyctl tui`
-     - Select devices, edit serial/comment, save unsigned baseline JSON interactively
-   - Or use CLI: `lusbyctl baseline init --device <ID> --out baseline_unsigned.json`
-   - Generate key: `lusbyctl baseline keygen`
-   - Sign baseline: `lusbyctl baseline sign --secret-b64 ...`
+     - Select devices, edit the comment, save an unsigned baseline JSON interactively
+   - Or use CLI: `lusbyctl baseline init <ID> --output baseline_unsigned.json`
+   - Generate key: `lusbyctl baseline keygen` (writes the secret to `lusby_signing.key`, mode 0600)
+   - Sign baseline: `lusbyctl baseline sign --secret-file lusby_signing.key --input baseline_unsigned.json --output baseline.json`
    - Verify: `lusbyctl baseline verify --pubkey ... baseline.json`
-   - Apply: `sudo lusbyctl baseline apply --file baseline.json --signer mykey`
+   - Apply: `lusbyctl baseline apply --file baseline.json --signer mykey`
 4. **Verify audit log**
    - `sudo lusbyctl audit verify /var/log/lusby/audit.log`
 
@@ -68,10 +68,14 @@ The script installs all dependencies, builds the packages, sets up the tray and 
 
 - Deny-by-default: Only explicitly approved devices are allowed
 - PolicyKit: Persistent changes are protected
-- Signed baselines: Ed25519, verified against trusted public keys
+- Signed baselines: Ed25519, verified against the trusted public key of the named signer
 - Audit log: hash-chained, only root can read/write
 - AppArmor: Daemon is restricted to necessary paths and capabilities
 - Event-driven: Reacts to udev/D-Bus events
+- Threat model: single-user desktop. Any local user may list attached USB
+  devices (including serial numbers) via D-Bus and request temporary access
+  within a rate limit; persistent policy and key management always require
+  PolicyKit authentication.
 
 ## How Device Recognition and Approval Work
 
@@ -80,12 +84,22 @@ The script installs all dependencies, builds the packages, sets up the tray and 
   - **No token or key is stored on the device itself.**
   - Approval is determined by matching against the baseline on the system.
 - **Approval:**
-  - Temporary: via tray or CLI, with TTL, automatically revoked
+  - Temporary: via tray or CLI, with TTL; automatically revoked on expiry,
+    lock, or suspend. Pending expirations are persisted, so a daemon restart
+    does not forget them.
   - Permanent: create baseline draft -> sign with Ed25519 key -> verify -> apply (PolicyKit authentication required)
+  - Baselines may carry `expires_at`; hashes of revoked baselines can be
+    listed in `/etc/lusby/revoked_baselines` (one `sha256:...` per line) so
+    they can never be replayed.
 
 ## Configuration & Paths
 
-- Config: `/etc/lusby/config.toml`
+- Config: `/etc/lusby/config.toml` (read by the daemon and the tray)
+  - `[policy] deny_unknown` — desired deny-by-default policy (cross-checked
+    against usbguard's effective policy at daemon startup)
+  - `[policy] default_ttl_secs` — default TTL used by the tray
+  - `[policy] revoke_on_lock` / `revoke_on_suspend` — auto-revoke triggers
+  - `[paths]` — baselines, trusted keys, audit log, and state locations
 - Baselines: `/etc/lusby/baselines/`
 - Trusted keys: `/etc/lusby/trusted_pubkeys/*.pub`
 - Audit log: `/var/log/lusby/audit.log`
@@ -137,10 +151,10 @@ sudo rm -rf /etc/lusby /var/lib/lusby /var/log/lusby/audit.log
   `sudo lusbyctl audit verify /var/log/lusby/audit.log`
 
 - **Other errors:**  
-  See log files for details:  
-  - `/var/log/lusby/daemon.log`
+  See logs for details:  
+  - Daemon: `journalctl -u lusby-daemon`
   - `/var/log/syslog`
-  - Tray errors: `~/.cache/lusby-tray.log`
+  - Tray: stdout/stderr (`journalctl --user` when started via autostart)
 
 ## Roadmap
 

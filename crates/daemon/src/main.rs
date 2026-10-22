@@ -5,6 +5,7 @@ mod dbus;
 use dbus::DaemonState;
 use lusby_backend_usbguard::UsbguardBackend;
 mod audit;
+mod config;
 mod logind;
 mod polkit;
 #[cfg(feature = "udev-monitor")]
@@ -26,13 +27,25 @@ async fn main() -> Result<()> {
         .build()
         .await?;
 
-    // Start udev listener to emit D-Bus signals (event-driven)
+    // Cross-check the configured policy against usbguard's effective policy.
+    state_clone.check_policy_config().await;
+
+    // Start udev listener to emit D-Bus signals (event-driven). A listener
+    // failure is logged and retried so the daemon never runs silently
+    // without USB events.
     #[cfg(feature = "udev-monitor")]
     {
         let conn_clone = connection.clone();
+        let state_for_udev = state_clone.clone();
         tokio::spawn(async move {
-            if let Err(e) = udev_monitor::run_udev_listener(conn_clone).await {
-                tracing::error!(error=?e, "udev listener exited with error");
+            loop {
+                match udev_monitor::run_udev_listener(conn_clone.clone(), state_for_udev.clone())
+                    .await
+                {
+                    Ok(()) => tracing::warn!("udev listener exited; restarting"),
+                    Err(e) => tracing::error!(error=?e, "udev listener failed; restarting"),
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             }
         });
     }
@@ -46,13 +59,17 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Start ephemeral approval cleanup task (10s granularity so short
-    // TTLs are not over-permissive for up to a minute).
+    // Ephemeral approval cleanup: sleep until the next expiry (or wake when
+    // a new grant is added) so TTLs are enforced promptly instead of on a
+    // coarse fixed tick.
     let state_for_cleanup = state_clone.clone();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
-            interval.tick().await;
+            let delay = state_for_cleanup.next_cleanup_delay();
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                _ = state_for_cleanup.grant_added() => {}
+            }
             state_for_cleanup.cleanup_expired_ephemeral().await;
         }
     });

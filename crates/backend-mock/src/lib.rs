@@ -18,6 +18,8 @@ impl MockBackend {
             device_type: "hid".into(),
             allowed: false,
             persistent: false,
+            usbguard_hash: String::new(),
+            interfaces: vec![],
         };
         Self {
             devices: std::sync::Arc::new(std::sync::Mutex::new(vec![sample])),
@@ -46,5 +48,9 @@ impl UsbBackend for MockBackend {
 
     async fn revoke(&self, _device_id: &str) -> bool {
         true
+    }
+
+    async fn implicit_policy_target(&self) -> Option<String> {
+        Some("block".to_string())
     }
 }

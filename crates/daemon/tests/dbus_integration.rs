@@ -38,9 +38,9 @@ async fn get_device_info_invalid_id() -> Result<()> {
         "org.lusby.Daemon",
     )
     .await?;
-    let info: DeviceInfo = proxy.call("GetDeviceInfo", &("invalid_id")).await?;
-    assert_eq!(info.id, "");
-    assert!(!info.allowed);
+    // An unknown device must surface as a D-Bus error, not an empty struct.
+    let res: zbus::Result<DeviceInfo> = proxy.call("GetDeviceInfo", &("invalid_id",)).await;
+    assert!(res.is_err(), "unknown device must return an error");
     Ok(())
 }
 

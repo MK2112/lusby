@@ -1,6 +1,8 @@
 #[cfg(test)]
 use crate::audit::{verify_chain, AuditEntry, AuditEntryPayload};
 #[cfg(test)]
+use crate::baseline::is_usbguard_hash;
+#[cfg(test)]
 use crate::baseline::{Baseline, DeviceEntry};
 #[cfg(test)]
 use crate::fingerprint::{compute_fingerprint, short_fingerprint, FingerprintInput};
@@ -77,13 +79,15 @@ fn canonical_sign_verify_baseline() {
         version: 1,
         created_by: "admin@example.com".into(),
         created_at: Utc::now(),
+        expires_at: None,
         devices: vec![DeviceEntry {
             vendor_id: "0x046d".into(),
             product_id: "0xc534".into(),
             serial: Some("ABC".into()),
             bus_path: None,
-            descriptors_hash: "sha256:deadbeef".into(),
+            descriptors_hash: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".into(),
             device_type: "hid".into(),
+            interfaces: vec!["03:01:01".into()],
             comment: Some("test".into()),
         }],
         signature: None,
@@ -124,6 +128,115 @@ fn audit_chain_integrity() {
     let mut bad = chain.clone();
     bad[1].payload.action = "tamper".into();
     assert!(!verify_chain(&bad));
+}
+
+#[test]
+fn audit_chain_rejects_empty() {
+    // An empty or fully truncated log must never verify as valid.
+    assert!(!verify_chain(&[]));
+}
+
+#[test]
+fn short_fingerprint_never_panics() {
+    // Multibyte input must not be sliced by byte index.
+    assert_eq!(short_fingerprint("sha256:äöüßäöüßx"), "äöüßäöüß");
+    assert_eq!(short_fingerprint("no-colon"), "no-colon");
+    assert_eq!(short_fingerprint(""), "");
+}
+
+#[test]
+fn baseline_validation_requires_identity() {
+    let mk = |serial: Option<&str>, hash: &str, ifaces: Vec<&str>| Baseline {
+        version: 1,
+        created_by: "test".into(),
+        created_at: Utc::now(),
+        expires_at: None,
+        devices: vec![DeviceEntry {
+            vendor_id: "046d".into(),
+            product_id: "c534".into(),
+            serial: serial.map(String::from),
+            bus_path: None,
+            descriptors_hash: hash.into(),
+            device_type: "hid".into(),
+            interfaces: ifaces.into_iter().map(String::from).collect(),
+            comment: None,
+        }],
+        signature: None,
+    };
+    // VID/PID only: rejected.
+    assert!(mk(None, "", vec![]).validate().is_err());
+    // Non-hex placeholder hash alone is not identity.
+    assert!(mk(None, "none", vec![]).validate().is_err());
+    // Serial, usbguard hash, or interfaces each suffice.
+    assert!(mk(Some("ABC"), "", vec![]).validate().is_ok());
+    assert!(mk(None, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", vec![])
+        .validate()
+        .is_ok());
+    assert!(mk(None, "", vec!["03:01:01"]).validate().is_ok());
+    // Malformed interface specs are rejected.
+    assert!(mk(None, "", vec!["rm -rf"]).validate().is_err());
+}
+
+#[test]
+fn baseline_expiry_is_enforced() {
+    let now = Utc::now();
+    let mut b = Baseline {
+        version: 1,
+        created_by: "test".into(),
+        created_at: now - chrono::Duration::days(30),
+        expires_at: Some(now - chrono::Duration::days(1)),
+        devices: vec![DeviceEntry {
+            vendor_id: "046d".into(),
+            product_id: "c534".into(),
+            serial: Some("ABC".into()),
+            bus_path: None,
+            descriptors_hash: String::new(),
+            device_type: "hid".into(),
+            interfaces: vec![],
+            comment: None,
+        }],
+        signature: None,
+    };
+    // Already expired.
+    assert!(b.validate_at(now).is_err());
+    // Valid window.
+    b.expires_at = Some(now + chrono::Duration::days(1));
+    assert!(b.validate_at(now).is_ok());
+    // Expiry before creation is nonsense.
+    b.expires_at = Some(b.created_at - chrono::Duration::days(1));
+    assert!(b.validate_at(now).is_err());
+    // Created in the future.
+    b.expires_at = None;
+    b.created_at = now + chrono::Duration::hours(1);
+    assert!(b.validate_at(now).is_err());
+}
+
+#[test]
+fn baseline_hash_is_stable_and_signature_independent() {
+    let mut b = Baseline {
+        version: 1,
+        created_by: "test".into(),
+        created_at: Utc::now(),
+        expires_at: None,
+        devices: vec![DeviceEntry {
+            vendor_id: "046d".into(),
+            product_id: "c534".into(),
+            serial: Some("ABC".into()),
+            bus_path: None,
+            descriptors_hash: String::new(),
+            device_type: "hid".into(),
+            interfaces: vec![],
+            comment: None,
+        }],
+        signature: None,
+    };
+    let h1 = b.baseline_hash().expect("hash");
+    let sk = SigningKey::generate(&mut OsRng);
+    b.sign_attach(&sk).expect("sign");
+    let h2 = b.baseline_hash().expect("hash");
+    assert_eq!(h1, h2, "hash must cover signed content only");
+    assert!(is_usbguard_hash("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"));
+    assert!(!is_usbguard_hash("sha256:deadbeef"));
 }
 #[cfg(test)]
 mod proptests {

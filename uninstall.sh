@@ -34,6 +34,15 @@ confirm() {
   fi
 }
 
+# A package counts as installed only in dpkg state "ii". `dpkg -l | grep`
+# also matches state "rc" (removed, config files left), which made the old
+# checks report failure after a successful removal.
+pkg_installed() {
+  local status
+  status="$(dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null | cut -c1-2)"
+  [ "$status" = "ii" ]
+}
+
 # Main script
 main() {
   echo -e "${BLUE}╔════════════════════════════════════════════════════════╗${NC}"
@@ -41,7 +50,7 @@ main() {
   echo -e "${BLUE}╚════════════════════════════════════════════════════════╝${NC}"
   echo
 
-  if ! (dpkg -l | grep -q "lusby-daemon" || dpkg -l | grep -q "usbguard"); then
+  if ! (pkg_installed lusby-daemon || pkg_installed usbguard); then
     warn "Neither lusby-daemon nor usbguard appear to be installed."
     if confirm "Continue anyway?"; then
       log "Proceeding with cleanup of config files..."
@@ -53,16 +62,24 @@ main() {
 
   if [ -f /etc/usbguard/rules.conf ]; then
     log "Creating backup of current usbguard rules..."
-    mkdir -p /tmp/lusby-uninstall-backup
-    cp /etc/usbguard/rules.conf "/tmp/lusby-uninstall-backup/rules.conf.backup.$(date +%s)"
-    ok "Backup saved to /tmp/lusby-uninstall-backup/"
+    # Private, unpredictable backup location (a pre-created /tmp directory
+    # must not be able to influence where root writes).
+    BACKUP_DIR="$(mktemp -d /tmp/lusby-uninstall-backup.XXXXXX)"
+    chmod 700 "$BACKUP_DIR"
+    BACKUP_FILE="$BACKUP_DIR/rules.conf.backup.$(date +%s)"
+    install -m 600 /etc/usbguard/rules.conf "$BACKUP_FILE"
+    ok "Backup saved to $BACKUP_FILE"
   fi
 
   section "Step 1: Emergency USB Recovery"
   if [ -d /etc/usbguard ]; then
     log "Allowing all USB devices before removal..."
-    sh -c 'echo "allow id *:*" > /etc/usbguard/rules.conf'
+    echo "allow id *:*" > /etc/usbguard/rules.conf
     ok "USB policy set to allow all devices"
+    # Reload so the allow-all rule takes effect while usbguard still runs.
+    if command -v usbguard >/dev/null 2>&1; then
+      usbguard reload 2>/dev/null && ok "usbguard reloaded" || warn "usbguard reload failed; rule applies after usbguard restart"
+    fi
 
     if [ -f /etc/usbguard/usbguard-daemon.conf ]; then
       sed -i 's/PresentDevicePolicy=apply-policy/PresentDevicePolicy=allow/' /etc/usbguard/usbguard-daemon.conf
@@ -85,12 +102,12 @@ main() {
   systemctl disable usbguard-dbus.service 2>/dev/null && ok "usbguard-dbus.service disabled" || true
 
   section "Step 4: Remove Packages"
-  if dpkg -l | grep -q "lusby-daemon"; then
+  if pkg_installed lusby-daemon; then
     log "Removing lusby-daemon package..."
     apt remove -y lusby-daemon 2>/dev/null && ok "lusby-daemon removed" || warn "Failed to remove lusby-daemon"
   fi
 
-  if dpkg -l | grep -q "usbguard"; then
+  if pkg_installed usbguard; then
     log "Removing usbguard package..."
     apt remove -y usbguard 2>/dev/null && ok "usbguard removed" || warn "Failed to remove usbguard"
     log "Purging usbguard configuration..."
@@ -230,13 +247,13 @@ main() {
   section "Verification"
   echo
   log "Checking if packages are removed..."
-  if dpkg -l | grep -q "lusby-daemon"; then
+  if pkg_installed lusby-daemon; then
     err "lusby-daemon still installed!"
   else
     ok "lusby-daemon removed"
   fi
 
-  if dpkg -l | grep -q "usbguard"; then
+  if pkg_installed usbguard; then
     err "usbguard still installed!"
   else
     ok "usbguard removed"

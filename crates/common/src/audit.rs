@@ -41,7 +41,42 @@ impl AuditEntry {
     }
 }
 
+/// Streaming chain verification (constant memory): returns the number of
+/// verified entries; Err on a broken chain, unparsable content, or an empty
+/// log (an empty/truncated log must never verify as valid).
+pub fn verify_stream<R: std::io::BufRead>(reader: R) -> Result<usize, String> {
+    let mut last: Option<String> = None;
+    let mut count = 0usize;
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("read error: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let entry: AuditEntry =
+            serde_json::from_str(&line).map_err(|e| format!("parse error: {}", e))?;
+        let expected = AuditEntry::compute_hash(last.as_deref(), &entry.payload);
+        let link_ok = match (&last, &entry.prev_hash) {
+            (None, None) => true,
+            (Some(l), Some(p)) => l == p,
+            _ => false,
+        };
+        if !link_ok || expected != entry.entry_hash {
+            return Err("chain verification failed".into());
+        }
+        last = Some(entry.entry_hash);
+        count += 1;
+    }
+    if count == 0 {
+        return Err("empty log".into());
+    }
+    Ok(count)
+}
+
 pub fn verify_chain(entries: &[AuditEntry]) -> bool {
+    // An empty (or fully truncated) log must not be reported as valid.
+    if entries.is_empty() {
+        return false;
+    }
     let mut last: Option<&str> = None;
     for e in entries {
         let expected = AuditEntry::compute_hash(last, &e.payload);

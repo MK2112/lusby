@@ -11,7 +11,8 @@ profile /usr/sbin/lusby-daemon flags=(enforce) {
   # Configuration and baselines
   /etc/lusby/ r,
   /etc/lusby/** rw,
-  /etc/usbguard/rules.conf r,
+  # rules.conf must be writable: apply renames the merged tmp file over it.
+  /etc/usbguard/rules.conf rw,
   /etc/usbguard/rules.conf.tmp rw,
   /etc/usbguard/rules.conf.bak rw,
 

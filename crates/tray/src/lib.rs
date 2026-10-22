@@ -28,12 +28,21 @@ pub fn default_ttl() -> u32 {
 pub fn clamp_ttl(ttl: u32) -> u32 {
     ttl.clamp(MIN_TTL_SECS, MAX_TTL_SECS)
 }
-pub fn load_config_ttl() -> u32 {
-    let path = "/etc/lusby/config.toml";
-    if let Ok(text) = std::fs::read_to_string(path) {
-        if let Ok(cfg) = toml::from_str::<Config>(&text) {
-            return clamp_ttl(cfg.policy.default_ttl_secs);
-        }
+pub fn load_config_ttl_from(path: &str) -> u32 {
+    match std::fs::read_to_string(path) {
+        Ok(text) => match toml::from_str::<Config>(&text) {
+            Ok(cfg) => return clamp_ttl(cfg.policy.default_ttl_secs),
+            Err(e) => eprintln!(
+                "lusby-tray: config parse error in {}: {}; using default TTL",
+                path, e
+            ),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => eprintln!("lusby-tray: cannot read {}: {}; using default TTL", path, e),
     }
     default_ttl()
+}
+
+pub fn load_config_ttl() -> u32 {
+    load_config_ttl_from("/etc/lusby/config.toml")
 }

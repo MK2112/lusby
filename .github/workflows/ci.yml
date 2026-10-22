@@ -153,8 +153,9 @@ jobs:
           
           echo "Daemon started successfully with PID $DAEMON_PID"
           
-          # Run tests
-          cargo test --no-fail-fast --workspace --exclude lusby-tray
+          # Run the #[ignore]d integration tests against the live daemon
+          # (unit tests already ran in the previous step).
+          cargo test --no-fail-fast --workspace --exclude lusby-tray -- --ignored
           
           # Cleanup
           echo "Stopping daemon..."

@@ -17,7 +17,7 @@ udev-monitor = ["dep:udev"]
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "time"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net"] }
 zbus = { version = "4", default-features = false, features = ["tokio"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -34,6 +34,7 @@ base64 = "0.22"
 [dev-dependencies]
 lusby-backend-mock = { path = "../backend-mock" }
 proptest = "1.0"
+tempfile = "3"
 
 [package.metadata.deb]
 maintainer = "MK2112 <mk2112@protonmail.com>"
@@ -42,6 +43,7 @@ priority = "optional"
 depends = "usbguard (>=1.0.0), libdbus-1-3, libgtk-3-0"
 assets = [
     ["target/release/lusby-daemon", "usr/sbin/lusby-daemon", "755"],
+    ["target/release/lusbyctl", "usr/bin/lusbyctl", "755"],
     ["../../packaging/systemd/lusby-daemon.service", "lib/systemd/system/lusby-daemon.service", "644"],
     ["../../packaging/dbus/org.lusby.Daemon.conf", "etc/dbus-1/system.d/org.lusby.Daemon.conf", "644"],
     ["../../packaging/polkit/org.lusby.manage.policy", "usr/share/polkit-1/actions/org.lusby.manage.policy", "644"],

@@ -41,8 +41,17 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum BaselineCmd {
-    /// Generate an Ed25519 keypair and print base64 values
-    Keygen,
+    /// Generate an Ed25519 keypair; the secret is written to a 0600 file
+    /// (use --print-secret to print it instead)
+    Keygen {
+        /// File to write the base64 secret to (mode 0600)
+        #[arg(long)]
+        secret_out: Option<PathBuf>,
+        /// Print the secret to stdout instead of writing a file (leaks via
+        /// shell history/scrollback — prefer --secret-out)
+        #[arg(long)]
+        print_secret: bool,
+    },
     /// Sign a baseline JSON (canonical JSON) with a base64 secret key, writing signature into the file
     Sign {
         /// Base64 32-byte secret (prefer --secret-file or LUSBY_SECRET_B64 env)
@@ -59,11 +68,12 @@ pub enum BaselineCmd {
     /// Initialize an unsigned baseline from a live device id
     Init {
         device: String,
+        /// Override the device serial recorded in the baseline
         #[arg(long)]
         serial: Option<String>,
         #[arg(long)]
         comment: Option<String>,
-        #[arg(long)]
+        #[arg(long, alias = "out")]
         output: PathBuf,
     },
     /// Apply a signed baseline over D-Bus (polkit-gated)
