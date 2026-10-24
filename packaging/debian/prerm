@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+#DEBHELPER#
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    if command -v apparmor_parser >/dev/null 2>&1 \
+        && [ -f /etc/apparmor.d/usr.sbin.lusby-daemon ]; then
+        apparmor_parser -R /etc/apparmor.d/usr.sbin.lusby-daemon >/dev/null 2>&1 || true
+    fi
+fi
+
+exit 0

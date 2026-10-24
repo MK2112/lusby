@@ -3,7 +3,7 @@ name = "lusby_daemon"
 path = "src/lib.rs"
 [package]
 name = "lusby-daemon"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Lusby privileged daemon for managing usbguard policies and signed baselines"
@@ -40,16 +40,22 @@ tempfile = "3"
 maintainer = "MK2112 <mk2112@protonmail.com>"
 section = "utils"
 priority = "optional"
-depends = "usbguard (>=1.0.0), libdbus-1-3, libgtk-3-0"
+depends = "$auto, usbguard (>= 1.0.0), polkitd | policykit-1, udev, libgtk-3-0, libayatana-appindicator3-1 | libappindicator3-1"
+recommends = "apparmor"
 assets = [
     ["target/release/lusby-daemon", "usr/sbin/lusby-daemon", "755"],
     ["target/release/lusbyctl", "usr/bin/lusbyctl", "755"],
-    ["../../packaging/systemd/lusby-daemon.service", "lib/systemd/system/lusby-daemon.service", "644"],
+    ["target/release/lusby-tray", "usr/bin/lusby-tray", "755"],
     ["../../packaging/dbus/org.lusby.Daemon.conf", "etc/dbus-1/system.d/org.lusby.Daemon.conf", "644"],
+    ["../../packaging/dbus/system-services/org.lusby.Daemon.service", "usr/share/dbus-1/system-services/org.lusby.Daemon.service", "644"],
     ["../../packaging/polkit/org.lusby.manage.policy", "usr/share/polkit-1/actions/org.lusby.manage.policy", "644"],
     ["../../packaging/apparmor/usr.sbin.lusby-daemon", "etc/apparmor.d/usr.sbin.lusby-daemon", "644"],
     ["../../packaging/config/config.toml", "etc/lusby/config.toml", "644"],
+    ["../../packaging/udev/80-lusby.rules", "etc/udev/rules.d/80-lusby.rules", "644"],
+    ["../../packaging/desktop/lusby-tray.desktop", "etc/xdg/autostart/lusby-tray.desktop", "644"],
+    ["../../packaging/desktop/lusby-tray.desktop", "usr/share/applications/lusby-tray.desktop", "644"],
+    ["../../README.md", "usr/share/doc/lusby-daemon/README.md", "644"],
+    ["../../LICENSE", "usr/share/doc/lusby-daemon/LICENSE", "644"],
 ]
-conf-files = [
-    "/etc/lusby/config.toml",
-]
+maintainer-scripts = "../../packaging/debian"
+systemd-units = { unit-scripts = "../../packaging/systemd", unit-name = "lusby-daemon" }

@@ -111,15 +111,27 @@ mod tests {
         // Foreign rules survive...
         assert!(merged.contains("allow id 1111:2222"));
         assert!(merged.contains("block id 3333:4444"));
-        // ...and the managed section is delimited.
+        // ...and the managed section is delimited
         assert!(merged.contains(BEGIN_MARK));
         assert!(merged.contains(END_MARK));
-        // Re-applying must not accumulate duplicate managed sections.
+        assert!(merged.find("block id 3333:4444").unwrap() < merged.find(BEGIN_MARK).unwrap());
         let again = UsbguardBackend::merge_rules(&merged, "allow id 9999:8888\n");
         assert_eq!(again.matches(BEGIN_MARK).count(), 1);
         assert!(again.contains("allow id 9999:8888"));
         assert!(!again.contains("allow id 046d:c534"));
         assert!(again.contains("allow id 1111:2222"));
+        assert!(again.find("block id 3333:4444").unwrap() < again.find(BEGIN_MARK).unwrap());
+    }
+
+    #[test]
+    fn merge_keeps_admin_block_before_lusby_allow() {
+        let merged = UsbguardBackend::merge_rules("block id 046d:c534\n", "allow id 046d:c534\n");
+        let admin_block = merged.find("block id 046d:c534").unwrap();
+        let lusby_allow = merged.find("allow id 046d:c534").unwrap();
+        assert!(
+            admin_block < lusby_allow,
+            "admin block must be evaluated before lusby allow: {merged}"
+        );
     }
 
     use proptest::prelude::*;
@@ -329,7 +341,7 @@ impl UsbguardBackend {
 
     /// Merge the lusby-managed rules into the existing policy instead of
     /// replacing the whole file: administrator/foreign rules survive, and
-    /// re-applying replaces (never duplicates) the managed section.
+    /// re-applying replaces (never duplicates) the managed section
     fn merge_rules(existing: &str, lusby_block: &str) -> String {
         let mut kept: Vec<&str> = Vec::new();
         let mut in_managed = false;
@@ -348,16 +360,16 @@ impl UsbguardBackend {
             }
         }
         let mut out = String::new();
+        for l in kept {
+            out.push_str(l);
+            out.push('\n');
+        }
         out.push_str(BEGIN_MARK);
         out.push('\n');
         out.push_str(lusby_block.trim_end());
         out.push('\n');
         out.push_str(END_MARK);
         out.push('\n');
-        for l in kept {
-            out.push_str(l);
-            out.push('\n');
-        }
         out
     }
 
@@ -402,12 +414,10 @@ impl UsbguardBackend {
         let rules_path = "/etc/usbguard/rules.conf";
         let tmp_path = "/etc/usbguard/rules.conf.tmp";
         let bak_path = "/etc/usbguard/rules.conf.bak";
-
         // Merge with (rather than replace) the existing policy so unrelated
         // administrator rules and recovery allowances are preserved.
         let existing = fs::read_to_string(rules_path).unwrap_or_default();
         let merged = Self::merge_rules(&existing, rules_content);
-
         // Remove a stale tmp file first so `create_new` below is a true
         // exclusive create (no truncating a pre-existing symlink/plant).
         let _ = fs::remove_file(tmp_path);

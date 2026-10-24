@@ -1,0 +1,35 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+    install -d -m 0755 /etc/lusby
+    install -d -m 0700 /etc/lusby/baselines /etc/lusby/trusted_pubkeys
+    install -d -m 0700 /var/lib/lusby /var/log/lusby
+    chmod 0755 /etc/lusby
+    chmod 0700 /etc/lusby/baselines /etc/lusby/trusted_pubkeys
+    chmod 0700 /var/lib/lusby /var/log/lusby
+    chown root:root /etc/lusby/baselines /etc/lusby/trusted_pubkeys
+    chown root:root /var/lib/lusby /var/log/lusby
+
+    touch /var/log/lusby/audit.log
+    chmod 0600 /var/log/lusby/audit.log
+    chown root:root /var/log/lusby/audit.log
+
+    if [ -f /etc/lusby/config.toml ]; then
+        chmod 0644 /etc/lusby/config.toml
+    fi
+    if [ -d /run/systemd/system ]; then
+        systemctl reload dbus.service >/dev/null 2>&1 || true
+    fi
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules >/dev/null 2>&1 || true
+        udevadm trigger --subsystem-match=usb >/dev/null 2>&1 || true
+    fi
+    if command -v apparmor_parser >/dev/null 2>&1; then
+        apparmor_parser -r -W /etc/apparmor.d/usr.sbin.lusby-daemon >/dev/null 2>&1 || true
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

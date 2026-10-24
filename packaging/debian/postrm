@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+#DEBHELPER#
+
+case "$1" in
+    remove|purge)
+        if [ -d /run/systemd/system ]; then
+            systemctl reload dbus.service >/dev/null 2>&1 || true
+        fi
+        if command -v udevadm >/dev/null 2>&1; then
+            udevadm control --reload-rules >/dev/null 2>&1 || true
+            udevadm trigger --subsystem-match=usb >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
+if [ "$1" = "purge" ]; then
+    rm -rf /var/lib/lusby /var/log/lusby
+    rmdir /etc/lusby/baselines /etc/lusby/trusted_pubkeys /etc/lusby 2>/dev/null || true
+fi
+
+exit 0

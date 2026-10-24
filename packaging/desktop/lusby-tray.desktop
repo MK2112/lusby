@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Lusby Tray
+Comment=USB device management tray for Lusby
+Exec=/usr/bin/lusby-tray
+TryExec=/usr/bin/lusby-tray
+Icon=security-high
+Categories=System;Utility;
+StartupNotify=false
+Terminal=false

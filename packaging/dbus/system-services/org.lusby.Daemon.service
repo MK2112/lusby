@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.lusby.Daemon
+Exec=/usr/sbin/lusby-daemon
+User=root
+SystemService=true

@@ -1288,7 +1288,7 @@ checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 
 [[package]]
 name = "lusby-backend-mock"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "lusby-common",
@@ -1297,7 +1297,7 @@ dependencies = [
 
 [[package]]
 name = "lusby-backend-usbguard"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "libc",
@@ -1311,7 +1311,7 @@ dependencies = [
 
 [[package]]
 name = "lusby-common"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "base64",
@@ -1332,7 +1332,7 @@ dependencies = [
 
 [[package]]
 name = "lusby-daemon"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -1357,7 +1357,7 @@ dependencies = [
 
 [[package]]
 name = "lusby-tray"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -1378,7 +1378,7 @@ dependencies = [
 
 [[package]]
 name = "lusbyctl"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "base64",
