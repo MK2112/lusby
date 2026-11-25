@@ -698,10 +698,22 @@ impl DaemonState {
             );
             return false;
         }
+        // Resolve the alias to the backend's canonical device id before any
+        // grant accounting
+        let devices = self.raw_list_devices().await;
+        let Some(target) = resolve_in(&devices, device_id) else {
+            let _ = self.audit.lock().unwrap().log(
+                "ephemeral_allow_reject",
+                Some(device_id.to_string()),
+                "device_not_found",
+                Some(real_uid),
+            );
+            return false;
+        };
         // polkit is required for indefinite grants and once the cumulative
         // unauthenticated grant window for this device is exhausted, so
         // repeated renewal cannot extend access forever without auth.
-        let needs_polkit = ttl == 0 || !self.within_grant_window(device_id, ttl);
+        let needs_polkit = ttl == 0 || !self.within_grant_window(&target, ttl);
         if needs_polkit
             && !check_manage_authorization(conn, &header)
                 .await
@@ -715,16 +727,6 @@ impl DaemonState {
             );
             return false;
         }
-        let devices = self.raw_list_devices().await;
-        let Some(target) = resolve_in(&devices, device_id) else {
-            let _ = self.audit.lock().unwrap().log(
-                "ephemeral_allow_reject",
-                Some(device_id.to_string()),
-                "device_not_found",
-                Some(real_uid),
-            );
-            return false;
-        };
         let ok = self.backend.allow_ephemeral(&target, ttl).await;
         if !ok {
             let _ = self.audit.lock().unwrap().log(
@@ -750,7 +752,7 @@ impl DaemonState {
             let _ = self.backend.revoke(&target).await;
             return false;
         }
-        self.note_grant(device_id, ttl);
+        self.note_grant(&target, ttl);
         let expiry = if ttl == 0 {
             None
         } else {
