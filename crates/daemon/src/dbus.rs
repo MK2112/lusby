@@ -23,9 +23,7 @@ use crate::polkit::{check_manage_authorization, sender_uid};
 /// Max unauthenticated requests per uid per minute (ListDevices,
 /// GetDeviceInfo, RequestEphemeralAllow, RevokeDevice share the budget).
 const RATE_LIMIT_PER_MINUTE: u32 = 60;
-/// Cumulative seconds of temporary access grantable per device within the
-/// rolling window without polkit re-authentication.
-const GRANT_WINDOW: Duration = Duration::from_secs(24 * 3600);
+const GRANT_WINDOW: Duration = Duration::from_secs(48 * 3600);
 const GRANT_WINDOW_CAP_SECS: u32 = 86400;
 
 #[derive(Clone, Debug)]
@@ -785,7 +783,7 @@ impl DaemonState {
             Some(Instant::now() + Duration::from_secs(ttl as u64))
         };
         self.inner.lock().unwrap().ephemeral.insert(
-            device_id.to_string(),
+            target.to_string(),
             EphemeralGrant {
                 expiry,
                 owner_uid: real_uid,
@@ -1027,6 +1025,8 @@ impl DaemonState {
             );
             return false;
         }
+        let devices = self.raw_list_devices().await;
+        let target = resolve_in(&devices, device_id).unwrap_or_else(|| device_id.to_string());
         // Owner-scoped: only the owner of an ephemeral grant (or an
         // admin-authorized caller) may revoke it.
         let owner = self
@@ -1034,7 +1034,7 @@ impl DaemonState {
             .lock()
             .unwrap()
             .ephemeral
-            .get(device_id)
+            .get(&target)
             .map(|g| g.owner_uid);
         let authorized = match (owner, real_uid) {
             (Some(o), Some(u)) if o == u => true,
@@ -1051,8 +1051,6 @@ impl DaemonState {
             );
             return false;
         }
-        let devices = self.raw_list_devices().await;
-        let target = resolve_in(&devices, device_id).unwrap_or_else(|| device_id.to_string());
         let ok = self.backend.revoke(&target).await;
         // A manual revoke supersedes any pending ephemeral approval — but a
         // failed revoke must not make the approval disappear unnoticed.
