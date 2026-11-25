@@ -430,9 +430,9 @@ impl DaemonState {
         rate_ok(&mut self.inner.lock().unwrap(), uid)
     }
 
-    /// True while another `ttl` seconds fit into the unauthenticated grant
-    /// window for this device; false once polkit re-authentication is due.
-    fn within_grant_window(&self, device_id: &str, ttl: u32) -> bool {
+    /// Atomically check and reserve `ttl` seconds in the unauthenticated grant
+    /// window for this device
+    fn reserve_grant_window(&self, device_id: &str, ttl: u32) -> bool {
         let mut inner = self.inner.lock().unwrap();
         let now = Instant::now();
         if inner.grant_window.len() > 1024 {
@@ -447,7 +447,19 @@ impl DaemonState {
         if now.duration_since(e.0) >= GRANT_WINDOW {
             *e = (now, 0);
         }
-        e.1.saturating_add(ttl) <= GRANT_WINDOW_CAP_SECS
+        if e.1.saturating_add(ttl) > GRANT_WINDOW_CAP_SECS {
+            return false;
+        }
+        e.1 = e.1.saturating_add(ttl);
+        true
+    }
+
+    /// Release a reservation whose grant did not succeed.
+    fn refund_grant_window(&self, device_id: &str, ttl: u32) {
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(e) = inner.grant_window.get_mut(device_id) {
+            e.1 = e.1.saturating_sub(ttl);
+        }
     }
 
     fn note_grant(&self, device_id: &str, ttl: u32) {
@@ -713,12 +725,16 @@ impl DaemonState {
         // polkit is required for indefinite grants and once the cumulative
         // unauthenticated grant window for this device is exhausted, so
         // repeated renewal cannot extend access forever without auth.
-        let needs_polkit = ttl == 0 || !self.within_grant_window(&target, ttl);
+        let reserved = self.reserve_grant_window(&target, ttl);
+        let needs_polkit = ttl == 0 || !reserved;
         if needs_polkit
             && !check_manage_authorization(conn, &header)
                 .await
                 .unwrap_or(false)
         {
+            if reserved {
+                self.refund_grant_window(&target, ttl);
+            }
             let _ = self.audit.lock().unwrap().log(
                 "ephemeral_allow_reject",
                 Some(device_id.to_string()),
@@ -729,6 +745,9 @@ impl DaemonState {
         }
         let ok = self.backend.allow_ephemeral(&target, ttl).await;
         if !ok {
+            if reserved {
+                self.refund_grant_window(&target, ttl);
+            }
             let _ = self.audit.lock().unwrap().log(
                 "ephemeral_allow",
                 Some(device_id.to_string()),
@@ -750,9 +769,16 @@ impl DaemonState {
         );
         if logged.is_err() {
             let _ = self.backend.revoke(&target).await;
+            if reserved {
+                self.refund_grant_window(&target, ttl);
+            }
             return false;
         }
-        self.note_grant(&target, ttl);
+        // A polkit-authorized grant that could not reserve budget still
+        // consumes it, matching the normal charge-on-success behaviour.
+        if !reserved {
+            self.note_grant(&target, ttl);
+        }
         let expiry = if ttl == 0 {
             None
         } else {
